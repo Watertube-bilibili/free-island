@@ -1,0 +1,554 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-10T04:56:15.367Z",
+  "title": "Design System: 浮岛 / Free Island",
+  "extensions": {
+    "colorMeta": {
+      "cobalt": {
+        "role": "primary",
+        "displayName": "Cobalt",
+        "tonalRamp": [
+          "oklch(15.00% 0.1972 271.12)",
+          "oklch(26.43% 0.1972 271.12)",
+          "oklch(37.86% 0.1972 271.12)",
+          "oklch(49.29% 0.1972 271.12)",
+          "oklch(60.71% 0.1972 271.12)",
+          "oklch(72.14% 0.1972 271.12)",
+          "oklch(83.57% 0.1972 271.12)",
+          "oklch(95.00% 0.1972 271.12)"
+        ]
+      },
+      "cobalt-hover": {
+        "role": "primary",
+        "displayName": "Cobalt Hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.1913 270.56)",
+          "oklch(26.43% 0.1913 270.56)",
+          "oklch(37.86% 0.1913 270.56)",
+          "oklch(49.29% 0.1913 270.56)",
+          "oklch(60.71% 0.1913 270.56)",
+          "oklch(72.14% 0.1913 270.56)",
+          "oklch(83.57% 0.1913 270.56)",
+          "oklch(95.00% 0.1913 270.56)"
+        ]
+      },
+      "cobalt-pressed": {
+        "role": "primary",
+        "displayName": "Cobalt Pressed",
+        "tonalRamp": [
+          "oklch(15.00% 0.1800 270.04)",
+          "oklch(26.43% 0.1800 270.04)",
+          "oklch(37.86% 0.1800 270.04)",
+          "oklch(49.29% 0.1800 270.04)",
+          "oklch(60.71% 0.1800 270.04)",
+          "oklch(72.14% 0.1800 270.04)",
+          "oklch(83.57% 0.1800 270.04)",
+          "oklch(95.00% 0.1800 270.04)"
+        ]
+      },
+      "cobalt-focus": {
+        "role": "primary",
+        "displayName": "Cobalt Focus",
+        "tonalRamp": [
+          "oklch(15.00% 0.1828 266.50)",
+          "oklch(26.43% 0.1828 266.50)",
+          "oklch(37.86% 0.1828 266.50)",
+          "oklch(49.29% 0.1828 266.50)",
+          "oklch(60.71% 0.1828 266.50)",
+          "oklch(72.14% 0.1828 266.50)",
+          "oklch(83.57% 0.1828 266.50)",
+          "oklch(95.00% 0.1828 266.50)"
+        ]
+      },
+      "selected": {
+        "role": "primary",
+        "displayName": "Selected",
+        "tonalRamp": [
+          "oklch(15.00% 0.0190 276.35)",
+          "oklch(26.43% 0.0190 276.35)",
+          "oklch(37.86% 0.0190 276.35)",
+          "oklch(49.29% 0.0190 276.35)",
+          "oklch(60.71% 0.0190 276.35)",
+          "oklch(72.14% 0.0190 276.35)",
+          "oklch(83.57% 0.0190 276.35)",
+          "oklch(95.00% 0.0190 276.35)"
+        ]
+      },
+      "selected-ink": {
+        "role": "primary",
+        "displayName": "Selected Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.1811 269.63)",
+          "oklch(26.43% 0.1811 269.63)",
+          "oklch(37.86% 0.1811 269.63)",
+          "oklch(49.29% 0.1811 269.63)",
+          "oklch(60.71% 0.1811 269.63)",
+          "oklch(72.14% 0.1811 269.63)",
+          "oklch(83.57% 0.1811 269.63)",
+          "oklch(95.00% 0.1811 269.63)"
+        ]
+      },
+      "selection": {
+        "role": "primary",
+        "displayName": "Selection",
+        "tonalRamp": [
+          "oklch(15.00% 0.0574 275.43)",
+          "oklch(26.43% 0.0574 275.43)",
+          "oklch(37.86% 0.0574 275.43)",
+          "oklch(49.29% 0.0574 275.43)",
+          "oklch(60.71% 0.0574 275.43)",
+          "oklch(72.14% 0.0574 275.43)",
+          "oklch(83.57% 0.0574 275.43)",
+          "oklch(95.00% 0.0574 275.43)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "tonalRamp": [
+          "oklch(15.00% 0.0054 274.97)",
+          "oklch(26.43% 0.0054 274.97)",
+          "oklch(37.86% 0.0054 274.97)",
+          "oklch(49.29% 0.0054 274.97)",
+          "oklch(60.71% 0.0054 274.97)",
+          "oklch(72.14% 0.0054 274.97)",
+          "oklch(83.57% 0.0054 274.97)",
+          "oklch(95.00% 0.0054 274.97)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "oklch(15.00% 0.0000 0.00)",
+          "oklch(26.43% 0.0000 0.00)",
+          "oklch(37.86% 0.0000 0.00)",
+          "oklch(49.29% 0.0000 0.00)",
+          "oklch(60.71% 0.0000 0.00)",
+          "oklch(72.14% 0.0000 0.00)",
+          "oklch(83.57% 0.0000 0.00)",
+          "oklch(95.00% 0.0000 0.00)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.0449 261.90)",
+          "oklch(26.43% 0.0449 261.90)",
+          "oklch(37.86% 0.0449 261.90)",
+          "oklch(49.29% 0.0449 261.90)",
+          "oklch(60.71% 0.0449 261.90)",
+          "oklch(72.14% 0.0449 261.90)",
+          "oklch(83.57% 0.0449 261.90)",
+          "oklch(95.00% 0.0449 261.90)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.0372 259.95)",
+          "oklch(26.43% 0.0372 259.95)",
+          "oklch(37.86% 0.0372 259.95)",
+          "oklch(49.29% 0.0372 259.95)",
+          "oklch(60.71% 0.0372 259.95)",
+          "oklch(72.14% 0.0372 259.95)",
+          "oklch(83.57% 0.0372 259.95)",
+          "oklch(95.00% 0.0372 259.95)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Line",
+        "tonalRamp": [
+          "oklch(15.00% 0.0139 258.35)",
+          "oklch(26.43% 0.0139 258.35)",
+          "oklch(37.86% 0.0139 258.35)",
+          "oklch(49.29% 0.0139 258.35)",
+          "oklch(60.71% 0.0139 258.35)",
+          "oklch(72.14% 0.0139 258.35)",
+          "oklch(83.57% 0.0139 258.35)",
+          "oklch(95.00% 0.0139 258.35)"
+        ]
+      },
+      "input-line": {
+        "role": "neutral",
+        "displayName": "Input Line",
+        "tonalRamp": [
+          "oklch(15.00% 0.0290 258.37)",
+          "oklch(26.43% 0.0290 258.37)",
+          "oklch(37.86% 0.0290 258.37)",
+          "oklch(49.29% 0.0290 258.37)",
+          "oklch(60.71% 0.0290 258.37)",
+          "oklch(72.14% 0.0290 258.37)",
+          "oklch(83.57% 0.0290 258.37)",
+          "oklch(95.00% 0.0290 258.37)"
+        ]
+      },
+      "neutral-hover": {
+        "role": "neutral",
+        "displayName": "Neutral Hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.0116 264.51)",
+          "oklch(26.43% 0.0116 264.51)",
+          "oklch(37.86% 0.0116 264.51)",
+          "oklch(49.29% 0.0116 264.51)",
+          "oklch(60.71% 0.0116 264.51)",
+          "oklch(72.14% 0.0116 264.51)",
+          "oklch(83.57% 0.0116 264.51)",
+          "oklch(95.00% 0.0116 264.51)"
+        ]
+      },
+      "neutral-pressed": {
+        "role": "neutral",
+        "displayName": "Neutral Pressed",
+        "tonalRamp": [
+          "oklch(15.00% 0.0234 264.45)",
+          "oklch(26.43% 0.0234 264.45)",
+          "oklch(37.86% 0.0234 264.45)",
+          "oklch(49.29% 0.0234 264.45)",
+          "oklch(60.71% 0.0234 264.45)",
+          "oklch(72.14% 0.0234 264.45)",
+          "oklch(83.57% 0.0234 264.45)",
+          "oklch(95.00% 0.0234 264.45)"
+        ]
+      },
+      "warning-paper": {
+        "role": "semantic",
+        "displayName": "Warning Paper",
+        "tonalRamp": [
+          "oklch(15.00% 0.0248 81.13)",
+          "oklch(26.43% 0.0248 81.13)",
+          "oklch(37.86% 0.0248 81.13)",
+          "oklch(49.29% 0.0248 81.13)",
+          "oklch(60.71% 0.0248 81.13)",
+          "oklch(72.14% 0.0248 81.13)",
+          "oklch(83.57% 0.0248 81.13)",
+          "oklch(95.00% 0.0248 81.13)"
+        ]
+      },
+      "warning-ink": {
+        "role": "semantic",
+        "displayName": "Warning Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.0991 72.72)",
+          "oklch(26.43% 0.0991 72.72)",
+          "oklch(37.86% 0.0991 72.72)",
+          "oklch(49.29% 0.0991 72.72)",
+          "oklch(60.71% 0.0991 72.72)",
+          "oklch(72.14% 0.0991 72.72)",
+          "oklch(83.57% 0.0991 72.72)",
+          "oklch(95.00% 0.0991 72.72)"
+        ]
+      },
+      "warning-line": {
+        "role": "semantic",
+        "displayName": "Warning Line",
+        "tonalRamp": [
+          "oklch(15.00% 0.0710 83.54)",
+          "oklch(26.43% 0.0710 83.54)",
+          "oklch(37.86% 0.0710 83.54)",
+          "oklch(49.29% 0.0710 83.54)",
+          "oklch(60.71% 0.0710 83.54)",
+          "oklch(72.14% 0.0710 83.54)",
+          "oklch(83.57% 0.0710 83.54)",
+          "oklch(95.00% 0.0710 83.54)"
+        ]
+      },
+      "error": {
+        "role": "semantic",
+        "displayName": "Error",
+        "tonalRamp": [
+          "oklch(15.00% 0.1755 21.32)",
+          "oklch(26.43% 0.1755 21.32)",
+          "oklch(37.86% 0.1755 21.32)",
+          "oklch(49.29% 0.1755 21.32)",
+          "oklch(60.71% 0.1755 21.32)",
+          "oklch(72.14% 0.1755 21.32)",
+          "oklch(83.57% 0.1755 21.32)",
+          "oklch(95.00% 0.1755 21.32)"
+        ]
+      },
+      "complete": {
+        "role": "semantic",
+        "displayName": "Complete",
+        "tonalRamp": [
+          "oklch(15.00% 0.0740 171.05)",
+          "oklch(26.43% 0.0740 171.05)",
+          "oklch(37.86% 0.0740 171.05)",
+          "oklch(49.29% 0.0740 171.05)",
+          "oklch(60.71% 0.0740 171.05)",
+          "oklch(72.14% 0.0740 171.05)",
+          "oklch(83.57% 0.0740 171.05)",
+          "oklch(95.00% 0.0740 171.05)"
+        ]
+      },
+      "brand-sky": {
+        "role": "primary",
+        "displayName": "Brand Sky",
+        "tonalRamp": [
+          "oklch(15.00% 0.0734 267.80)",
+          "oklch(26.43% 0.0734 267.80)",
+          "oklch(37.86% 0.0734 267.80)",
+          "oklch(49.29% 0.0734 267.80)",
+          "oklch(60.71% 0.0734 267.80)",
+          "oklch(72.14% 0.0734 267.80)",
+          "oklch(83.57% 0.0734 267.80)",
+          "oklch(95.00% 0.0734 267.80)"
+        ]
+      },
+      "edge-paper": {
+        "role": "neutral",
+        "displayName": "Edge Paper",
+        "tonalRamp": [
+          "oklch(15.00% 0.0204 276.96)",
+          "oklch(26.43% 0.0204 276.96)",
+          "oklch(37.86% 0.0204 276.96)",
+          "oklch(49.29% 0.0204 276.96)",
+          "oklch(60.71% 0.0204 276.96)",
+          "oklch(72.14% 0.0204 276.96)",
+          "oklch(83.57% 0.0204 276.96)",
+          "oklch(95.00% 0.0204 276.96)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display-classroom": {
+        "displayName": "Classroom timing figures",
+        "purpose": "Tabular, unwrapped countdown values; stopwatch uses its local fit size."
+      },
+      "display-desktop": {
+        "displayName": "Desktop timing figures",
+        "purpose": "Compact timing values."
+      },
+      "headline-classroom": {
+        "displayName": "Classroom page title",
+        "purpose": "Page identity."
+      },
+      "headline-desktop": {
+        "displayName": "Desktop page title",
+        "purpose": "Page identity."
+      },
+      "title-classroom": {
+        "displayName": "Classroom section title",
+        "purpose": "Workspace section headings."
+      },
+      "title-desktop": {
+        "displayName": "Desktop section title",
+        "purpose": "Compact workspace section headings."
+      },
+      "body-classroom": {
+        "displayName": "Classroom body",
+        "purpose": "Readable task content."
+      },
+      "body-desktop": {
+        "displayName": "Desktop body",
+        "purpose": "Compact task content."
+      },
+      "action-classroom": {
+        "displayName": "Classroom action",
+        "purpose": "Medium-weight primary and secondary action labels."
+      },
+      "action-desktop": {
+        "displayName": "Desktop action",
+        "purpose": "Compact medium-weight action labels."
+      },
+      "label-classroom": {
+        "displayName": "Classroom label",
+        "purpose": "Field labels and supporting controls."
+      },
+      "label-desktop": {
+        "displayName": "Desktop label",
+        "purpose": "Compact field labels and supporting controls."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-ball",
+        "value": "WPF DropShadowEffect(BlurRadius=14, ShadowDepth=3, Color=#22305B, Opacity=0.18)",
+        "purpose": "Separate the floating ball from underlying Windows content."
+      },
+      {
+        "name": "radial-menu",
+        "value": "WPF DropShadowEffect(BlurRadius=18, ShadowDepth=4, Color=#233353, Opacity=0.16)",
+        "purpose": "Separate the radial menu disk."
+      },
+      {
+        "name": "island",
+        "value": "WPF DropShadowEffect(BlurRadius=15, ShadowDepth=4, Color=#233353, Opacity=0.16)",
+        "purpose": "Lift the floating island capsule."
+      }
+    ],
+    "motion": [
+      {
+        "name": "page-entry",
+        "value": "180ms; TranslateY 6→0; opacity .72→1; WPF ExponentialEase(EaseOut, Exponent=5)",
+        "purpose": "Page changes only; respects ClientAreaAnimation and SnapshotMode."
+      },
+      {
+        "name": "state-fade",
+        "value": "180ms; opacity .5→1; WPF CubicEase(EaseOut)",
+        "purpose": "Fullscreen state changes; figures stay still."
+      },
+      {
+        "name": "dock-settle",
+        "value": "220ms; Left/Top origin→snapped position; WPF CubicEase(EaseOut)",
+        "purpose": "Drag release settles at an edge."
+      },
+      {
+        "name": "radial-choice",
+        "value": "240ms; translate 28→0; scale .74→1; short stagger",
+        "purpose": "Choices fan out from the floating ball."
+      },
+      {
+        "name": "island-open",
+        "value": "290ms scale .76→1; WPF BackEase(EaseOut, Amplitude=.22); 200ms opacity .3→1 CubicEase(EaseOut)",
+        "purpose": "Open the island."
+      },
+      {
+        "name": "island-collapse",
+        "value": "160ms scale 1→.78; WPF BackEase(EaseOut, Amplitude=.22)",
+        "purpose": "Collapse the island into a recoverable handle."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "classroom-agenda-stack",
+        "value": "content width < 940 DIPs"
+      },
+      {
+        "name": "desktop-agenda-stack",
+        "value": "content width < 705 DIPs"
+      },
+      {
+        "name": "stage-compact",
+        "value": "width < 1050 DIPs OR height < 740 DIPs"
+      },
+      {
+        "name": "stage-hide-keyboard-hint",
+        "value": "height < 620 DIPs"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Classroom primary action. HTML is a self-contained visual translation of the WPF template.",
+      "html": "<button class=\"ds-primary\">开始计时</button>",
+      "css": ".ds-primary{background:#4F66E8;color:#fff;border:1px solid #4F66E8;border-radius:10px;padding:10px 22px;min-height:54px;font:500 20px \"Microsoft YaHei UI\",sans-serif;cursor:pointer}.ds-primary:hover{background:#4258D4}.ds-primary:active{background:#3448BA}.ds-primary:focus-visible{outline:none;border:2px solid #152D9E}.ds-primary:disabled{opacity:.47}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Classroom secondary action.",
+      "html": "<button class=\"ds-secondary\">记录分段</button>",
+      "css": ".ds-secondary{background:#fff;color:#18243A;border:1px solid #DCE2EB;border-radius:10px;padding:10px 22px;min-height:54px;font:500 20px \"Microsoft YaHei UI\",sans-serif;cursor:pointer}.ds-secondary:hover{background:#EDF1F9}.ds-secondary:active{background:#DDE5F5}.ds-secondary:focus-visible{outline:none;border:2px solid #4F66E8}.ds-secondary:disabled{opacity:.47}"
+    },
+    {
+      "name": "Ghost Action",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Supporting text action.",
+      "html": "<button class=\"ds-ghost\">查看全部</button>",
+      "css": ".ds-ghost{background:transparent;color:#4F66E8;border:1px solid transparent;border-radius:10px;padding:0 10px;min-height:48px;font:500 16px \"Microsoft YaHei UI\",sans-serif;cursor:pointer}.ds-ghost:hover{background:#EDF1F9}.ds-ghost:active{background:#DDE5F5}.ds-ghost:focus-visible{outline:none;border:2px solid #4F66E8}"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Main editable field; native WPF TextBox shape is retained.",
+      "html": "<label class=\"ds-field\">提醒名称<input class=\"ds-input\" value=\"小组讨论\" /></label>",
+      "css": ".ds-field{display:grid;gap:7px;color:#58657A;font:500 16px/1.45 \"Microsoft YaHei UI\",sans-serif}.ds-input{background:#fff;color:#18243A;border:1px solid #AAB6C8;border-radius:0;padding:9px 14px;min-height:34px;font:400 20px \"Microsoft YaHei UI\",sans-serif;caret-color:#4F66E8}.ds-input:focus-visible{outline:none;border:2px solid #4F66E8}.ds-input::selection{background:#CDD6FF}"
+    },
+    {
+      "name": "Active Navigation",
+      "kind": "nav",
+      "refersTo": "navigation-active",
+      "description": "Text and vector icon identify the active route.",
+      "html": "<nav aria-label=\"功能\"><button class=\"ds-nav\" aria-current=\"page\"><svg width=\"23\" height=\"23\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3,10.5 L12,3 L21,10.5 M5.5,9 V20 H9.5 V14 H14.5 V20 H18.5 V9\"/></svg>工作台</button></nav>",
+      "css": ".ds-nav{display:flex;align-items:center;justify-content:center;gap:10px;background:#EEF1FF;color:#384FC2;border:1px solid #CDD6FF;border-radius:10px;padding:12px 10px;min-height:56px;font:500 18px \"Microsoft YaHei UI\",sans-serif;cursor:pointer}.ds-nav:hover{background:#EDF1F9}.ds-nav:active{background:#DDE5F5}.ds-nav:focus-visible{outline:none;border:2px solid #4F66E8}"
+    },
+    {
+      "name": "Scene Choice",
+      "kind": "chip",
+      "refersTo": "scene-choice",
+      "description": "Explicit classroom/desktop mode choice.",
+      "html": "<button class=\"ds-scene\" aria-pressed=\"true\"><svg width=\"23\" height=\"23\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3,4 H21 M5,4 V16 H19 V4 M12,16 V21 M7.5,21 L12,18 L16.5,21 M8,8 H16 M8,11.5 H13\"/></svg>教室触屏</button>",
+      "css": ".ds-scene{display:flex;align-items:center;gap:10px;background:#EEF1FF;color:#18243A;border:1px solid #BCC8FC;border-radius:10px;padding:8px 13px;min-height:48px;font:500 16px \"Microsoft YaHei UI\",sans-serif;cursor:pointer}.ds-scene:hover{background:#EDF1F9}.ds-scene:active{background:#DDE5F5}.ds-scene:focus-visible{outline:none;border:2px solid #4F66E8}"
+    },
+    {
+      "name": "Work Surface",
+      "kind": "card",
+      "refersTo": "surface",
+      "description": "Flat white container for related task content.",
+      "html": "<section class=\"ds-surface\"><div class=\"ds-surface-title\">日程提醒</div><p class=\"ds-surface-caption\">到时间时，浮岛会提醒你。</p></section>",
+      "css": ".ds-surface{background:#fff;color:#18243A;border:1px solid #DCE2EB;border-radius:12px;padding:24px;font-family:\"Microsoft YaHei UI\",sans-serif}.ds-surface-title{font-size:20px;font-weight:500;line-height:1.45}.ds-surface-caption{color:#58657A;font-size:16px;line-height:1.45;margin:8px 0 0}"
+    },
+    {
+      "name": "Floating Island",
+      "kind": "custom",
+      "refersTo": "island",
+      "description": "Desktop capsule anatomy. Shadow is a browser approximation of the documented native WPF effect.",
+      "html": "<div class=\"ds-island\"><svg width=\"23\" height=\"23\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9,2 H15 M12,2 V5 M19.5,13.5 A7.5,7.5 0 1 1 4.5,13.5 A7.5,7.5 0 1 1 19.5,13.5 M12,9 V13.5 L15,15.5\"/></svg><div><div class=\"ds-island-title\">正向计时</div><div class=\"ds-island-detail\">点击查看 · 拖动调整位置</div></div></div>",
+      "css": ".ds-island{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.988235);color:#4F66E8;border-radius:32px;padding:10px 12px 10px 16px;min-height:62px;box-shadow:0 4px 15px rgba(35,51,83,.16);font-family:\"Microsoft YaHei UI\",sans-serif}.ds-island-title{color:#18243A;font-size:16px;font-weight:600}.ds-island-detail{color:#58657A;font-size:12px;margin-top:5px}"
+    },
+    {
+      "name": "Floating Capsule Brand",
+      "kind": "custom",
+      "description": "Exact normalized geometry shared by native drawing and the application icon.",
+      "html": "<svg class=\"ds-brand\" width=\"80\" height=\"80\" viewBox=\"0 0 24 24\" role=\"img\" aria-label=\"浮岛\"><circle cx=\"12\" cy=\"12\" r=\"12\" fill=\"#4F66E8\"/><rect x=\"5\" y=\"12.5\" width=\"14\" height=\"5\" rx=\"2.5\" fill=\"#fff\"/><rect x=\"10\" y=\"6.5\" width=\"7\" height=\"3\" rx=\"1.5\" fill=\"#B9CDFF\"/></svg>",
+      "css": ".ds-brand{display:block}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Teaching Console",
+    "overview": "A pale, orderly control surface for operating time. Dark readable text, stable timing figures and a single cobalt action color help people find a task quickly. Native Windows type and familiar controls serve an operating tool intended for touch and mouse.\n\nClassroom and desktop are two densities of this same system. The floating capsule brand connects the control center, overlays, fullscreen stage and installer. The light palette records the finished implementation; it remains the team's working assumption, not a user-confirmed color preference. The prior dark mint dashboard was explicitly rejected.",
+    "keyCharacteristics": [
+      "Pale fields and white work surfaces, organized with quiet borders.",
+      "Cobalt actions and explicit text states.",
+      "Native Chinese UI type paired with stable Latin timing numerals.",
+      "Classroom touch reach and a compact desktop density.",
+      "Brief transitions for controls; steady figures while reading."
+    ],
+    "rules": [
+      {
+        "name": "The Action Color Rule",
+        "body": "Use cobalt for action, selection and the shared brand; express warning, error and completion with their named semantic colors and readable state text.",
+        "section": "colors"
+      },
+      {
+        "name": "The Stable Time Rule",
+        "body": "Keep timer numerals tabular, unwrapped and still; animate state changes around the reading surface.",
+        "section": "typography"
+      },
+      {
+        "name": "The Reach Rule",
+        "body": "Preserve the distinction between visible artwork and its interactive bounds: primary classroom controls have at least 54-DIP height, navigation 56, scene choices 48 and fullscreen controls 68; collapsed classroom handles keep at least 44 DIPs on their short hit-area axis.",
+        "section": "layout"
+      },
+      {
+        "name": "The Floating Depth Rule",
+        "body": "Use ambient shadow to locate floating Windows overlays; organize the control center with tone, spacing and borders.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** reuse the paired classroom and desktop type roles and native component helpers.",
+      "**Do** keep timing figures tabular and unwrapped, with state expressed separately.",
+      "**Do** retain visible keyboard focus and scene-appropriate interactive bounds.",
+      "**Do** reuse the normalized vector icon and floating-capsule brand geometry.",
+      "**Do** keep required bottom actions reachable when task content scrolls.",
+      "**Do** treat the light palette as the implemented working direction until the user confirms a preference."
+    ],
+    "donts": [
+      "**Don't** shrink a classroom touch target to the visible arrow's dimensions.",
+      "**Don't** add control-center card shadows as a default surface treatment.",
+      "**Don't** substitute text glyphs or emoji for the shared vector action icons.",
+      "**Don't** turn synthesized tonal preview ramps or incidental local brush differences into new shared tokens."
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+dist/
+artifacts/
+bin/
+obj/
+*.user
+*.suo
+test-data/
+smoke-artifacts/
+tools/w64devkit-i686-1.23.0/
+tools/w64devkit-i686-1.23.0.zip

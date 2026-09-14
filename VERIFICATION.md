@@ -1,4 +1,24 @@
+# v1.0.3 水滴验证补充
+
+- WaterLens 12/12 组通过：真实棋盘像素位置变化、中心颜色、抗锯齿、预乘 BGRA、溢出及非有限输入、弹簧收敛。
+- DesktopBackdrop 17 项自有窗口检查通过：排除自身后与原背景逐字节一致，禁用/隐藏/重显正确恢复捕获状态。
+- WPF 144 项材质/隐藏生命周期检查通过，8组桌面/教室 × 深浅背景 × 水滴/轻量自有图案输出完成。静态图不证明实际帧率。
+- 生产 v1.0.3 WPF 程序完成 `--smoke-test`，退出码 0，输出 39 张界面图。此流程验证实际发布程序的两种场景、功能与布局；它与上面的 144 项光学/生命周期断言独立，不能互相替代。
+- Win7 安全 smoke 通过：静止重绘0，按压文字原位，250ms形变回弹，最大4%拖动形变，轻量无动态重绘。
+- Windows开发环境验证，不等于实体Win7教学大屏或所有录屏软件兼容验证。未执行真实安装、卸载、UAC操作或关机。
 # Verification · 2026-09-11
+
+## v1.0.2 installer update
+
+- WPF custom-directory and ownership checks: 42 isolated checks passed, including Chinese/space paths, valid upgrades, nonempty unrelated folders, reserved names, system roots, real NTFS junctions, and elevation arguments round-tripped through `CommandLineToArgvW`.
+- WPF uninstall argument and account checks: 24 passed. This harness never called the removal routine or elevation UI. Default uninstall preserves data; the prompt displays the selected directory.
+- WPF file replacement/deletion regression: 25 checks passed with the final Common source. A fixture with an ordinary file denying only `WRITE_ATTRIBUTES` reproduces the old failure; replacement and deletion now succeed without requesting that right. Checks also cover read-only restoration on failure, partial rollback, transient locks and actual isolated-process teardown.
+- Native custom-directory tests: six scenario groups passed, including existing-install markers, unrelated content, links/hard links, shortcut ownership, and uninstall handoff origin. The original native upgrade harness compiled but this run was denied execution; its previous v1.0.1 results below are historical, not a fresh v1.0.2 pass.
+- The WPF setup compiled and passed embedded payload SHA-256 verification. Default/custom-directory UI previews were inspected. No real installation, uninstall, administrator prompt, startup mutation, real data removal or shutdown was performed.
+- Final native v1.0.2 application/setup builds passed PE32 subsystem 6.1 and no-CLR/external-VC-runtime checks; embedded application SHA-256 matched. All 16 native core groups passed again. Native compiler reports existing macro-redefinition and compressed-statement indentation warnings.
+- On the reported PC, the existing v1.0.0 EXE has an ordinary file attribute and current-user FullControl, yet read-only handle diagnostics returned Windows error 5 for write-attributes and delete access. Restart Manager reported no holders. There is no confirmed security-product attribution; the code fix does not prove that this separate deletion restriction has been removed. The installer now offers a user-selected administrator retry and a different directory.
+
+## Earlier v1.0.1 verification
 
 Release v1.0.1 adds switchable glass material, a 0–100% dot slider (default 20%, 6 physical pixels), and transactional installer upgrades. It retains the six independent radial buttons, expanded-island scaling and the native painting correction.
 

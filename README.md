@@ -6,31 +6,42 @@
 
 Win7 专版的应用和安装器使用原生 Win32 C++ / GDI+，支持 32 位和 64 位 Windows 7，不需要 .NET Framework 或 Visual C++ Redistributable。
 
-- 安装包：[FreeIsland-Win7-Setup-1.0.1.exe](https://github.com/Watertube-bilibili/free-island/releases/download/v1.0.1/FreeIsland-Win7-Setup-1.0.1.exe)
-- 免安装包：[FreeIsland-Win7-Portable-1.0.1.zip](https://github.com/Watertube-bilibili/free-island/releases/download/v1.0.1/FreeIsland-Win7-Portable-1.0.1.zip)
-- [Win7 使用与卸载说明](win7/README.md)、[构建工具链说明](tools/TOOLCHAIN.md)、[SHA-256 校验值](https://github.com/Watertube-bilibili/free-island/releases/download/v1.0.1/SHA256SUMS-Win7.txt)
+- 安装包：`dist/FreeIsland-Win7-Setup-1.0.3.exe`
+- 免安装包：`dist/FreeIsland-Win7-Portable-1.0.3.zip`
+- [Win7 使用与卸载说明](win7/README.md)、[构建工具链说明](tools/TOOLCHAIN.md)；校验值在 `dist/SHA256SUMS-Win7.txt`。
+- 已公开发布的版本见 [GitHub Releases](https://github.com/Watertube-bilibili/free-island/releases)。本地构建版本以安装包文件名为准。
 
-安装目录为 `%LOCALAPPDATA%\Programs\FreeIslandWin7`，本地数据为 `%APPDATA%\FreeIslandWin7`，与下面的 WPF 版分别保存。Win7 原生源码位于 `win7/src/`；从仓库根目录执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\win7\build-native.ps1` 构建。
+默认安装目录为 `%LOCALAPPDATA%\Programs\FreeIslandWin7`，可在安装窗口输入路径或点「浏览」选择。升级会记住上次目录。本地数据为 `%APPDATA%\FreeIslandWin7`，与下面的 WPF 版分别保存。Win7 原生源码位于 `win7/src/`；从仓库根目录执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\win7\build-native.ps1` 构建。
 
 构建包含原生核心测试、PE 依赖检查与安全模式界面验证；具体结果见 [验证记录](VERIFICATION.md)。这些验证不涉及真实关机、安装或开机启动设置。目前未在实体 Windows 7 电脑或教学触摸大屏上测试。
 
 ## Windows 10 / 11 WPF 版：安装与运行
 
-1. 运行 `dist/FreeIsland-Setup-1.0.1.exe`，点击「安装浮岛」。
+1. 运行 `dist/FreeIsland-Setup-1.0.3.exe`，输入安装位置或点「浏览」选择文件夹，然后点击「安装浮岛」。
 2. 默认勾选「开机静默启动」和「创建桌面快捷方式」，可以按需取消。
-3. 安装后点击「打开浮岛」，或从开始菜单搜索「浮岛」。
+3. 安装后从桌面或开始菜单打开「浮岛」。管理员重试完成后点击「完成」，再从桌面或开始菜单启动应用。
 
-安装仅作用于当前 Windows 用户，不需要管理员权限。默认目录为 `%LOCALAPPDATA%\Programs\FreeIsland`。开机启动是用户登录后的静默启动：显示悬浮球与系统托盘图标，不弹出控制中心，灵动岛收起为屏幕边缘的小黑点。
+安装记录仅作用于当前 Windows 用户。默认目录为 `%LOCALAPPDATA%\Programs\FreeIsland`，通常无需管理员权限。自选受保护目录时可能需要权限；访问被拒绝后，可点击「管理员重试」，经 Windows 授权后重新确认安装。开机启动是用户登录后的静默启动：显示悬浮球与系统托盘图标，不弹出控制中心，灵动岛收起为屏幕边缘的小黑点。
 
-免安装版为 `dist/FreeIsland-Portable-1.0.1.zip`。解压到固定目录后运行 `FreeIsland.exe`。如开启开机启动，请勿移动或删除该目录；移动后可在新位置重新关闭并开启自启动。
+升级默认沿用已有目录。改到新目录安装时，旧目录文件会保留，同一版本的设置和日程继续共用；当前账户的浮岛快捷方式和自启动项按所选选项更新。请选择空文件夹或原浮岛安装文件夹。卸载窗口会显示要移除的路径，默认保留本地设置。
+
+免安装版为 `dist/FreeIsland-Portable-1.0.3.zip`。解压到固定目录后运行 `FreeIsland.exe`。如开启开机启动，请勿移动或删除该目录；移动后可在新位置重新关闭并开启自启动。
 
 运行环境：Windows 10 / Windows 11，.NET Framework 4.8。应用与安装器未进行商业代码签名，Windows 可能显示「未知发布者」提示。发行文件的 SHA-256 校验值见 `dist/SHA256SUMS.txt`。
 
-## v1.0.1（2026-09-11）
+## v1.0.3（2026-09-14）
+
+在「设置 → 液态玻璃」选择「水滴」，现代 Windows 版会折射浮窗下方的真实画面，并在按压和拖动时柔和形变；文字与图标保持原位。该模式需要 Windows 10 2004 或更新版本与桌面合成，不支持时显示轻量清透材质。原有选择会保留，默认仍为「轻量」。
+
+水滴模式通过系统接口排除浮窗自身，因此录屏或屏幕共享可能看不到这些浮窗；需要共享、录屏或使用低配置电脑时请选择「轻量」或「关闭」。背景仅在浮窗区域取样并保存在内存，不保存截图、不上传。Win7 版提供清透材质和水滴形变动效，不提供真实桌面折射。主控制界面与计时文字保持清晰的实体表面，六个功能按钮之间保留透明间隔。
+
+两版新增自选安装目录。Win10/11 版修正普通文件不必要的属性修改、只读文件删除及回滚错误提示，并区分文件占用与权限拒绝。安装和卸载在权限拒绝时支持用户选择管理员重试。`dist/FreeIsland-Uninstall-1.0.3.exe` 是独立卸载工具，可读取已有安装记录并显示确认窗口，无需先覆盖旧程序。
+
+“访问被拒绝”仍可能由具体文件权限或系统保护造成；本版不会修改文件 ACL 或关闭安全软件。
 
 悬浮球菜单已移除大圆形底板，保留六个功能按钮和展开动画。灵动岛收起为小黑点；在「设置」中可调整黑点大小滑杆（0%–100%，对应 3–20 像素，默认 20% 约 6 像素）及展开大小（75%–150%），点击「应用大小」保存。黑点仍可拖动，教室模式保留 44 × 44 逻辑像素的透明触摸区域；悬浮球靠边后的箭头保持原样。
 
-液态玻璃提供「关闭 / 轻量 / 标准」三档，默认轻量，适合低配置教室电脑。轻量使用静态透色与边缘高光；标准增加曲面反射和随指针变化的局部高光。两档均不持续播放光效；收起的黑点不闪烁。玻璃是本地矢量材质模拟，不进行屏幕截图或实时背景折射；Win7 标准模式在 Aero 可用时可叠加系统模糊，否则使用静态材质。
+液态玻璃可随时关闭。轻量使用清透表面、细边缘和局部文字衬底，不采样背景；收起的小黑点不播放光效。Win7 的第三档名称为「水滴动效」，只在交互时显示柔和形变。
 
 覆盖安装会请求旧程序正常退出，暂存并校验新文件后替换；文件短暂占用时重试，替换失败则回滚。升级保留设置、日程以及已有的自启动和桌面快捷方式选择。两种版本分别升级各自的安装目录。
 Win7 原生版修正了父窗口重画覆盖原生控件的问题，并停止静止页面持续刷新。验证范围及未完成项目见 [验证记录](VERIFICATION.md)。
@@ -89,7 +100,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 安装包还支持仅提取并校验内嵌文件的验证模式，不安装、不启动应用、不创建快捷方式、不写入注册表：
 
 ```powershell
-.\dist\FreeIsland-Setup-1.0.1.exe --verify-payload "D:\free island\artifacts\payload-check"
+.\dist\FreeIsland-Setup-1.0.3.exe --verify-payload "D:\free island\artifacts\payload-check"
 ```
 
 UI 调试可使用应用的安全模式（演示关机，不会真正关闭 Windows）：
@@ -106,4 +117,4 @@ UI 调试可使用应用的安全模式（演示关机，不会真正关闭 Wind
 
 本次界面改版使用 [Impeccable 官方项目](https://github.com/pbakaus/impeccable) 提供的设计技能，用于界面设计与评审。它是开发工具，运行浮岛时不需要安装该技能。
 
-已确认的使用需求是教室触摸大屏为主、鼠标操作兼容，并保留电脑场景。当前浅色界面方向是开发时采用的设计假设，尚不是用户明确确认的视觉偏好；产品约束与待确认事项记录于 `PRODUCT.md`。
+已确认的使用需求是教室触摸大屏为主、鼠标操作兼容，并保留电脑场景。用户已确认参考 Apple Liquid Glass 的清透方向，并要求像水一样的材质和运动；产品约束记录于 `PRODUCT.md`。

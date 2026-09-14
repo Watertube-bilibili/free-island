@@ -27,8 +27,8 @@ foreach ($directory in @($buildDirectory, $outputDirectory, $portableDirectory))
 }
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $appExecutable = Join-Path $portableDirectory 'FreeIslandWin7.exe'
-$setupExecutable = Join-Path $outputDirectory 'FreeIsland-Win7-Setup-1.0.1.exe'
-$zipPath = Join-Path $outputDirectory 'FreeIsland-Win7-Portable-1.0.1.zip'
+$setupExecutable = Join-Path $outputDirectory 'FreeIsland-Win7-Setup-1.0.3.exe'
+$zipPath = Join-Path $outputDirectory 'FreeIsland-Win7-Portable-1.0.3.zip'
 $runtimeLicense = Join-Path (Split-Path -Parent $CompilerDirectory) 'COPYING.MinGW-w64-runtime.txt'
 if (-not (Test-Path -LiteralPath $runtimeLicense)) { throw '编译器缺少 COPYING.MinGW-w64-runtime.txt。' }
 
@@ -118,8 +118,8 @@ try {
 202 RCDATA "payload.sha256"
 203 RCDATA "COPYING.MinGW-w64-runtime.txt"
 1 VERSIONINFO
- FILEVERSION 1,0,1,0
- PRODUCTVERSION 1,0,1,0
+ FILEVERSION 1,0,3,0
+ PRODUCTVERSION 1,0,3,0
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS 0
  FILEOS VOS_NT_WINDOWS32
@@ -131,10 +131,10 @@ BEGIN
   BEGIN
    VALUE "CompanyName", "Free Island\0"
    VALUE "FileDescription", "浮岛 · Windows 7 原生安装程序\0"
-   VALUE "FileVersion", "1.0.1\0"
-   VALUE "OriginalFilename", "FreeIsland-Win7-Setup-1.0.1.exe\0"
+   VALUE "FileVersion", "1.0.3\0"
+   VALUE "OriginalFilename", "FreeIsland-Win7-Setup-1.0.3.exe\0"
    VALUE "ProductName", "浮岛\0"
-   VALUE "ProductVersion", "1.0.1\0"
+   VALUE "ProductVersion", "1.0.3\0"
   END
  END
  BLOCK "VarFileInfo"

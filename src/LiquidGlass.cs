@@ -1,134 +1,292 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 
 namespace FreeIsland
 {
-    /// <summary>Vector optical material. It does not capture or blur the desktop.</summary>
+    /// <summary>A clear convex water lens; only the material deforms, never its labels.</summary>
     public sealed class LiquidGlassSurface : FrameworkElement
     {
-        public static readonly DependencyProperty ModeProperty = DependencyProperty.Register("Mode", typeof(int), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(1, FrameworkPropertyMetadataOptions.AffectsRender));
+        public static readonly DependencyProperty ModeProperty = DependencyProperty.Register("Mode", typeof(int), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(1, FrameworkPropertyMetadataOptions.AffectsRender, Changed));
         public static readonly DependencyProperty OrbProperty = DependencyProperty.Register("Orb", typeof(bool), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
         public static readonly DependencyProperty RadiusProperty = DependencyProperty.Register("Radius", typeof(double), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(12.0, FrameworkPropertyMetadataOptions.AffectsRender));
-        public static readonly DependencyProperty PressedProperty = DependencyProperty.Register("Pressed", typeof(bool), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
-        public int Mode { get { return (int)GetValue(ModeProperty); } set { SetValue(ModeProperty, value); pointer = null; } }
+        public static readonly DependencyProperty PressedProperty = DependencyProperty.Register("Pressed", typeof(bool), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender, Changed));
+        public int Mode { get { return (int)GetValue(ModeProperty); } set { SetValue(ModeProperty, value); } }
         public bool Orb { get { return (bool)GetValue(OrbProperty); } set { SetValue(OrbProperty, value); } }
         public double Radius { get { return (double)GetValue(RadiusProperty); } set { SetValue(RadiusProperty, value); } }
         public bool Pressed { get { return (bool)GetValue(PressedProperty); } set { SetValue(PressedProperty, value); } }
-        private Point? pointer;
+        private readonly DispatcherTimer timer;
+        private readonly WaterSpring pressure = new WaterSpring(), pullX = new WaterSpring(), pullY = new WaterSpring();
+        private Window captureWindow;
+        private WaterLens lens;
+        private WriteableBitmap image;
+        private BackdropFrame backdrop;
+        private Rect screenBounds;
+        private Point? previousOrigin;
+        private DateTime lastTick, lastCapture, inkSince;
+        private bool lightInk, candidateInk, registered, moving;
+        private uint previousHash;
+        internal FrameworkElement InkHost;
+        // Tests provide a known slide fixture; production never assigns this delegate.
+        internal static Func<Rect, BackdropFrame> PreviewBackdrop = null;
+        internal bool HasRefraction { get { return image != null && backdrop != null; } }
+        internal bool IsUpdating { get { return timer.IsEnabled; } }
+        private bool Motion { get { return Mode == 2 && SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast && !SurfaceStyle.SnapshotMode; } }
+        private bool Capture { get { return Mode == 2 && !SystemParameters.HighContrast && (!SurfaceStyle.SnapshotMode || PreviewBackdrop != null); } }
 
-        private static readonly Brush LitePaper = Gradient(Color.FromArgb(246, 255, 255, 255), Color.FromArgb(232, 228, 235, 249));
-        private static readonly Brush StandardPaper = Gradient(Color.FromArgb(241, 255, 255, 255), Color.FromArgb(221, 222, 232, 249));
-        private static readonly Brush LiteBlue = Gradient(Color.FromArgb(247, 115, 143, 250), Color.FromArgb(241, 62, 83, 211));
-        private static readonly Brush StandardBlue = Gradient(Color.FromArgb(237, 133, 163, 255), Color.FromArgb(234, 57, 78, 203));
-        private static readonly Brush Edge = Gradient(Color.FromArgb(232, 255, 255, 255), Color.FromArgb(133, 120, 143, 183));
-        private static readonly Brush InnerEdge = Gradient(Color.FromArgb(165, 255, 255, 255), Color.FromArgb(85, 111, 142, 207));
-        private static readonly Brush Reflection = Gradient(Color.FromArgb(151, 255, 255, 255), Color.FromArgb(0, 255, 255, 255));
-        private static readonly Brush Caustic = Radial(Color.FromArgb(40, 107, 144, 246), Color.FromArgb(0, 133, 171, 255));
-        private static readonly Brush Highlight = Radial(Color.FromArgb(165, 255, 255, 255), Color.FromArgb(0, 255, 255, 255));
-        private static readonly Brush PressShade = Solid(Color.FromArgb(20, 38, 67, 124));
-        private static readonly Brush Paper = Solid(Color.FromRgb(241, 243, 250));
-        private static readonly Brush Cobalt = Solid(Color.FromRgb(79, 102, 232));
-
-        public LiquidGlassSurface() { IsHitTestVisible = false; SnapsToDevicePixels = false; }
-
+        public LiquidGlassSurface()
+        {
+            IsHitTestVisible = false;
+            timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) };
+            timer.Tick += Tick;
+            Loaded += delegate { SystemParameters.StaticPropertyChanged += SystemChanged; Refresh(); };
+            Unloaded += delegate { SystemParameters.StaticPropertyChanged -= SystemChanged; Stop(); };
+            IsVisibleChanged += delegate { Refresh(); };
+            SizeChanged += delegate { image = null; lens = null; lastCapture = DateTime.MinValue; Refresh(); };
+        }
+        private void SystemChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != "HighContrast" && e.PropertyName != "ClientAreaAnimation") return;
+            if (!Motion) { pressure.Value = pressure.Velocity = 0; pullX.Value = pullX.Target = pullX.Velocity = pullY.Value = pullY.Target = pullY.Velocity = 0; moving = false; }
+            backdrop = null; image = null; lastCapture = DateTime.MinValue; Refresh();
+        }
+        private static void Changed(DependencyObject sender, DependencyPropertyChangedEventArgs e)
+        {
+            var surface = (LiquidGlassSurface)sender;
+            if (e.Property == ModeProperty)
+            {
+                surface.backdrop = null; surface.image = null; surface.previousHash = 0; surface.lastCapture = DateTime.MinValue;
+                if (surface.Mode != 2) { surface.pressure.Value = surface.pressure.Velocity = 0; surface.pullX.Value = surface.pullX.Target = surface.pullX.Velocity = surface.pullY.Value = surface.pullY.Target = surface.pullY.Velocity = 0; surface.moving = false; surface.previousOrigin = null; }
+            }
+            surface.pressure.Target = surface.Pressed ? 1 : 0;
+            surface.Refresh();
+        }
+        private void Refresh()
+        {
+            if (!IsLoaded || !IsVisible) { Stop(); return; }
+            if (Capture && PreviewBackdrop == null && !registered)
+            {
+                captureWindow = Window.GetWindow(this);
+                registered = LiquidGlass.Register(captureWindow, this);
+            }
+            else if (!Capture && registered) { LiquidGlass.Unregister(captureWindow, this); registered = false; }
+            if (!Capture) { backdrop = null; image = null; }
+            if (InkHost != null) LiquidGlass.Ink(InkHost, Mode, lightInk && Capture);
+            if (Capture || Motion && (Pressed || pressure.Value != 0 || moving))
+            {
+                lastTick = DateTime.UtcNow; timer.Interval = TimeSpan.FromMilliseconds(33); timer.Start();
+            }
+            else timer.Stop();
+            InvalidateVisual();
+        }
+        private void Stop()
+        {
+            timer.Stop();
+            if (registered) { LiquidGlass.Unregister(captureWindow, this); registered = false; }
+            captureWindow = null; backdrop = null; image = null; previousOrigin = null;
+            pressure.Value = pressure.Target = pressure.Velocity = 0;
+            pullX.Value = pullX.Target = pullX.Velocity = pullY.Value = pullY.Target = pullY.Velocity = 0;
+        }
         internal void Pointer(Point? point)
         {
-            // Changes only come from pointer input. Resting surfaces have no render timer.
-            if (Mode != 2 || SurfaceStyle.SnapshotMode) return;
-            if (point.HasValue && pointer.HasValue && (point.Value - pointer.Value).LengthSquared < 2.25) return;
-            if (!point.HasValue && !pointer.HasValue) return;
-            pointer = point; InvalidateVisual();
+            if (!Motion || !Pressed && point.HasValue) return;
+            if (point.HasValue && Pressed)
+            {
+                pullX.Target = WaterLens.Clamp((point.Value.X / Math.Max(1, ActualWidth) - .5) * .65, -.4, .4);
+                pullY.Target = WaterLens.Clamp((point.Value.Y / Math.Max(1, ActualHeight) - .5) * .65, -.4, .4);
+            }
+            else if (!point.HasValue) { pullX.Target = pullY.Target = 0; }
+            moving = true;
+            if (IsLoaded && IsVisible) { timer.Interval = TimeSpan.FromMilliseconds(33); timer.Start(); }
         }
-
+        internal void Arrive()
+        {
+            if (!Motion) return;
+            pressure.Value = .95; pressure.Target = 0; pressure.Velocity = -1.5;
+            moving = true; Refresh();
+        }
+        private void Tick(object sender, EventArgs args)
+        {
+            if (!IsVisible || !IsLoaded) { Stop(); return; }
+            if (!Capture && registered) { Refresh(); return; }
+            DateTime now = DateTime.UtcNow;
+            double dt = Math.Min(.04, Math.Max(.001, (now - lastTick).TotalSeconds)); lastTick = now;
+            bool dirty = false;
+            try
+            {
+                Point origin = PointToScreen(new Point()), end = PointToScreen(new Point(ActualWidth, ActualHeight));
+                screenBounds = new Rect(origin, end);
+                if (previousOrigin.HasValue && Motion)
+                {
+                    Vector delta = origin - previousOrigin.Value;
+                    if (delta.Length > .5) { pullX.Target = WaterLens.Clamp(delta.X / 24, -1, 1); pullY.Target = WaterLens.Clamp(delta.Y / 24, -1, 1); }
+                    else { pullX.Target *= .55; pullY.Target *= .55; }
+                }
+                previousOrigin = origin;
+                bool wasMoving = moving;
+                moving = Motion && (pressure.Advance(dt) | pullX.Advance(dt) | pullY.Advance(dt)); dirty = moving || wasMoving;
+                if (Capture && (now - lastCapture).TotalMilliseconds >= (moving || Pressed ? 30 : 100))
+                {
+                    lastCapture = now;
+                    BackdropFrame frame = null;
+                    bool captured = PreviewBackdrop != null ? (frame = PreviewBackdrop(screenBounds)) != null :
+                        registered && DesktopBackdrop.TryCapture(captureWindow, screenBounds, out frame);
+                    if (captured && frame.Width >= 2 && frame.Height >= 2)
+                    {
+                        uint hash = 2166136261;
+                        for (int i = 0; i < frame.Pixels.Length; i += 19) hash = unchecked((hash ^ frame.Pixels[i]) * 16777619);
+                        dirty |= backdrop == null || hash != previousHash || frame.ScreenBounds != backdrop.ScreenBounds;
+                        previousHash = hash; backdrop = frame;
+                    }
+                    else if (backdrop != null) { backdrop = null; image = null; dirty = true; }
+                }
+                if (dirty || image == null && backdrop != null)
+                {
+                    RenderLens(); InvalidateVisual();
+                }
+                if (lens != null && backdrop != null) UpdateInk();
+            }
+            catch (InvalidOperationException) { backdrop = null; image = null; InvalidateVisual(); }
+            timer.Interval = TimeSpan.FromMilliseconds(moving || Pressed ? 33 : 100);
+            if (!Capture && !moving && !Pressed) timer.Stop();
+        }
+        private void RenderLens()
+        {
+            if (backdrop == null || ActualWidth < 2 || ActualHeight < 2) return;
+            // Logical-resolution optics keeps large touch displays inexpensive. WPF
+            // scales this material; the labels remain native vector text at full DPI.
+            double scale = Math.Min(1.5, Math.Min(640 / ActualWidth, 180 / ActualHeight));
+            int w = Math.Max(2, (int)Math.Ceiling(ActualWidth * scale)), h = Math.Max(2, (int)Math.Ceiling(ActualHeight * scale));
+            if (lens == null || lens.Width != w || lens.Height != h)
+            {
+                lens = new WaterLens(w, h); image = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
+            }
+            if (image == null) image = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
+            lens.Shape((Orb ? Math.Min(ActualWidth, ActualHeight) / 2 : Radius) * scale, pressure.Value, pullX.Value, pullY.Value);
+            lens.Refract(backdrop.Pixels, backdrop.Width, backdrop.Height, backdrop.Stride,
+                screenBounds.Left - backdrop.ScreenBounds.Left, screenBounds.Top - backdrop.ScreenBounds.Top, screenBounds.Width / w, screenBounds.Height / h);
+            image.WritePixels(new Int32Rect(0, 0, w, h), lens.Pixels, w * 4, 0);
+        }
+        private void UpdateInk()
+        {
+            bool desired = lightInk ? lens.MeanBrightness < .57 : lens.MeanBrightness < .38;
+            if (desired != candidateInk) { candidateInk = desired; inkSince = DateTime.UtcNow; }
+            if (desired != lightInk && (DateTime.UtcNow - inkSince).TotalMilliseconds >= 300)
+            { lightInk = desired; if (InkHost != null) LiquidGlass.Ink(InkHost, Mode, lightInk); }
+        }
         protected override void OnRender(DrawingContext drawing)
         {
             base.OnRender(drawing);
             double w = ActualWidth, h = ActualHeight;
             if (w < 2 || h < 2) return;
-            var bounds = new Rect(.75, .75, w - 1.5, h - 1.5);
-            double radius = Orb ? Math.Min(w, h) / 2 : Math.Min(Radius, Math.Min(w, h) / 2);
-            int mode = Mode >= 0 && Mode <= 2 ? Mode : 1;
-            if (mode == 0)
+            if (Mode == 2 && image != null && backdrop != null && !SystemParameters.HighContrast)
+            { drawing.DrawImage(image, new Rect(0, 0, w, h)); return; }
+            double inset = Mode == 0 ? .75 : Math.Max(2, Math.Min(w, h) * .045);
+            var bounds = new Rect(inset, inset, Math.Max(0, w - inset * 2), Math.Max(0, h - inset * 2));
+            double radius = Orb ? Math.Min(bounds.Width, bounds.Height) / 2 : Math.Min(Radius, bounds.Height / 2);
+            if (Mode == 0 || SystemParameters.HighContrast)
             {
-                drawing.DrawRoundedRectangle(Orb ? Cobalt : Paper, null, bounds, radius, radius);
-                if (Pressed) drawing.DrawRoundedRectangle(PressShade, null, bounds, radius, radius);
-                return;
+                drawing.DrawRoundedRectangle(SystemParameters.HighContrast ? SystemColors.WindowBrush : Orb ? SurfaceStyle.Brush("#4F66E8") : SurfaceStyle.Brush("#F1F3FA"), null, bounds, radius, radius); return;
             }
-            Brush fill = Orb ? (mode == 1 ? LiteBlue : StandardBlue) : (mode == 1 ? LitePaper : StandardPaper);
-            drawing.DrawRoundedRectangle(fill, new Pen(Edge, 1), bounds, radius, radius);
-            if (mode == 2)
-            {
-                var clip = new RectangleGeometry(bounds, radius, radius);
-                drawing.PushClip(clip);
-                // A curved upper reflection and a lower cool caustic imply lens thickness.
-                drawing.DrawEllipse(Reflection, null, new Point(w * .36, -h * .04), w * .71, h * .59);
-                drawing.DrawEllipse(Caustic, null, new Point(w * .71, h * 1.05), w * .71, h * .43);
-                if (w > 7 && h > 7)
-                    drawing.DrawRoundedRectangle(null, new Pen(InnerEdge, .8), new Rect(2.5, 2.5, w - 5, h - 5), Math.Max(0, radius - 2), Math.Max(0, radius - 2));
-                if (pointer.HasValue)
-                {
-                    double glow = Math.Min(Orb ? w * .67 : 80, Math.Max(24, h * .95));
-                    drawing.DrawEllipse(Highlight, null, pointer.Value, glow, glow * .75);
-                }
-                drawing.Pop();
-            }
-            if (Pressed) drawing.DrawRoundedRectangle(PressShade, null, bounds, radius, radius);
-        }
-
-        private static Brush Solid(Color color) { var brush = new SolidColorBrush(color); brush.Freeze(); return brush; }
-        private static Brush Gradient(Color top, Color bottom)
-        {
-            var brush = new LinearGradientBrush(top, bottom, new Point(.18, 0), new Point(.85, 1)); brush.Freeze(); return brush;
-        }
-        private static Brush Radial(Color center, Color edge)
-        {
-            var brush = new RadialGradientBrush(center, edge) { Center = new Point(.5, .5), GradientOrigin = new Point(.5, .5), RadiusX = .5, RadiusY = .5 };
-            brush.Freeze(); return brush;
+            // Lightweight mode uses actual window transparency. No white disk,
+            // animated texture, blur or desktop sampling is hidden behind this rim.
+            var transform = new ScaleTransform(1 + pressure.Value * .025, 1 - pressure.Value * .037, w / 2, h / 2);
+            drawing.PushTransform(transform);
+            var edge = new LinearGradientBrush(Color.FromArgb(218, 255, 255, 255), Color.FromArgb(105, 28, 35, 42), new Point(.15, 0), new Point(.82, 1));
+            drawing.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(30, 240, 245, 249)), new Pen(edge, 1.1), bounds, radius, radius);
+            bounds.Inflate(-1.7, -1.7);
+            if (bounds.Width > 0 && bounds.Height > 0) drawing.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb(65, 255, 255, 255)), .65), bounds, Math.Max(0, radius - 1.7), Math.Max(0, radius - 1.7));
+            drawing.Pop();
         }
     }
 
     internal static class LiquidGlass
     {
         private static readonly DependencyProperty PointerWiredProperty = DependencyProperty.RegisterAttached("PointerWired", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
-
+        private static readonly DependencyProperty OriginalInkProperty = DependencyProperty.RegisterAttached("OriginalInk", typeof(Brush), typeof(LiquidGlass));
+        private static readonly Dictionary<Window, HashSet<LiquidGlassSurface>> Windows = new Dictionary<Window, HashSet<LiquidGlassSurface>>();
+        internal static bool Register(Window window, LiquidGlassSurface surface)
+        {
+            if (window == null) return false;
+            HashSet<LiquidGlassSurface> surfaces;
+            if (!Windows.TryGetValue(window, out surfaces)) { surfaces = new HashSet<LiquidGlassSurface>(); Windows.Add(window, surfaces); }
+            surfaces.Add(surface); DesktopBackdrop.SetEnabled(window, true); return true;
+        }
+        internal static void Unregister(Window window, LiquidGlassSurface surface)
+        {
+            HashSet<LiquidGlassSurface> surfaces;
+            if (window == null || !Windows.TryGetValue(window, out surfaces)) return;
+            surfaces.Remove(surface);
+            if (surfaces.Count == 0) { Windows.Remove(window); DesktopBackdrop.SetEnabled(window, false); }
+        }
+        internal static bool IsWaterButton(Button button) { return (bool)button.GetValue(PointerWiredProperty); }
+        internal static void Ink(DependencyObject host, int mode, bool light)
+        {
+            // Local counter-colour halos protect labels on mixed slides without
+            // inserting an opaque card inside the water surface.
+            var text = host as TextBlock; var shape = host as Shape;
+            if (text != null || shape != null && !(shape is Rectangle))
+            {
+                DependencyProperty property = text != null ? TextBlock.ForegroundProperty : Shape.StrokeProperty;
+                var original = host.GetValue(OriginalInkProperty) as Brush;
+                if (original == null) { original = host.GetValue(property) as Brush; if (original != null) host.SetValue(OriginalInkProperty, original); }
+                host.SetValue(property, SystemParameters.HighContrast ? SystemColors.WindowTextBrush : mode == 0 ? original : light ? Brushes.White : SurfaceStyle.Brush("#132133"));
+                if (text != null) text.Background = mode == 1 && !SystemParameters.HighContrast ? new SolidColorBrush(Color.FromArgb(218, 246, 249, 251)) : Brushes.Transparent;
+                var element = (UIElement)host;
+                element.Effect = mode == 0 || SystemParameters.HighContrast ? null : new DropShadowEffect { Color = light ? Colors.Black : Colors.White, BlurRadius = mode == 1 ? 1 : 3, ShadowDepth = 0, Opacity = 1 };
+            }
+            // Solid nested action buttons retain their own high-contrast surface.
+            if (host is Button && !IsWaterButton((Button)host)) return;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(host); i++) Ink(VisualTreeHelper.GetChild(host, i), mode, light);
+        }
         public static Grid Orb(double size, int mode)
         {
             var grid = new Grid { Width = size, Height = size, Background = Brushes.Transparent };
-            var material = new LiquidGlassSurface { Orb = true, Mode = mode, Name = "OrbGlassMaterial" };
-            grid.Children.Add(material);
-            var glyph = new Canvas { Width = size, Height = size, IsHitTestVisible = false };
-            double unit = size / 24;
-            var island = new Rectangle { Width = 14 * unit, Height = 5 * unit, RadiusX = 2.5 * unit, RadiusY = 2.5 * unit, Fill = Brushes.White };
-            Canvas.SetLeft(island, 5 * unit); Canvas.SetTop(island, 12.5 * unit); glyph.Children.Add(island);
-            var sky = new Rectangle { Width = 7 * unit, Height = 3 * unit, RadiusX = 1.5 * unit, RadiusY = 1.5 * unit, Fill = SurfaceStyle.Brush("#B9CDFF") };
-            Canvas.SetLeft(sky, 10 * unit); Canvas.SetTop(sky, 6.5 * unit); glyph.Children.Add(sky);
-            grid.Children.Add(glyph); Track(grid, material); return grid;
+            var material = new LiquidGlassSurface { Orb = true, Mode = mode, Name = "OrbGlassMaterial" }; grid.Children.Add(material);
+            var glyph = AppVisual.Icon("home", size * .43, mode == 0 ? Brushes.White : SurfaceStyle.Brush("#132133"));
+            glyph.IsHitTestVisible = false; grid.Children.Add(glyph); Track(grid, material); return grid;
         }
-
         public static void Track(FrameworkElement host, LiquidGlassSurface material)
         {
+            material.InkHost = host;
+            host.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler(delegate { material.Pressed = true; }), true);
+            host.AddHandler(UIElement.PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler(delegate { material.Pressed = false; material.Pointer(null); }), true);
+            host.AddHandler(UIElement.PreviewTouchDownEvent, new EventHandler<TouchEventArgs>(delegate { material.Pressed = true; }), true);
+            host.AddHandler(UIElement.PreviewTouchUpEvent, new EventHandler<TouchEventArgs>(delegate { material.Pressed = false; material.Pointer(null); }), true);
             host.MouseMove += delegate(object sender, MouseEventArgs e) { material.Pointer(e.GetPosition(material)); };
             host.MouseLeave += delegate { material.Pointer(null); };
             host.TouchMove += delegate(object sender, TouchEventArgs e) { material.Pointer(e.GetTouchPoint(material).Position); };
-            host.TouchLeave += delegate { material.Pointer(null); };
-            host.TouchUp += delegate { material.Pointer(null); };
-            host.IsVisibleChanged += delegate { if (!host.IsVisible) material.Pointer(null); };
+            host.LostMouseCapture += delegate { material.Pressed = false; };
+            host.LostTouchCapture += delegate { material.Pressed = false; };
         }
-
+        internal static void Arrive(DependencyObject host)
+        {
+            var material = host as LiquidGlassSurface;
+            if (material != null) { material.Arrive(); return; }
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(host); i++) Arrive(VisualTreeHelper.GetChild(host, i));
+        }
+        internal static void Press(DependencyObject host, bool pressed)
+        {
+            var material = host as LiquidGlassSurface;
+            if (material != null) { material.Pressed = pressed; if (!pressed) material.Pointer(null); return; }
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(host); i++) Press(VisualTreeHelper.GetChild(host, i), pressed);
+        }
         public static void Button(Button button, int mode)
         {
             var template = new ControlTemplate(typeof(Button));
-            var grid = new FrameworkElementFactory(typeof(Grid));
-            grid.SetValue(Panel.BackgroundProperty, Brushes.Transparent);
+            var grid = new FrameworkElementFactory(typeof(Grid)); grid.SetValue(Panel.BackgroundProperty, Brushes.Transparent);
             var material = new FrameworkElementFactory(typeof(LiquidGlassSurface)); material.Name = "GlassMaterial";
-            material.SetValue(LiquidGlassSurface.ModeProperty, mode); material.SetValue(LiquidGlassSurface.RadiusProperty, 12.0); grid.AppendChild(material);
+            material.SetValue(LiquidGlassSurface.ModeProperty, mode); material.SetValue(LiquidGlassSurface.RadiusProperty, 18.0); grid.AppendChild(material);
             var focus = new FrameworkElementFactory(typeof(Border)); focus.Name = "KeyboardFocus";
-            focus.SetValue(Border.MarginProperty, new Thickness(3)); focus.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+            focus.SetValue(Border.MarginProperty, new Thickness(4)); focus.SetValue(Border.CornerRadiusProperty, new CornerRadius(14));
             focus.SetValue(Border.BorderThicknessProperty, new Thickness(2)); focus.SetValue(Border.BorderBrushProperty, Brushes.Transparent); focus.SetValue(UIElement.IsHitTestVisibleProperty, false); grid.AppendChild(focus);
             var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
             presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center); presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
@@ -140,18 +298,16 @@ namespace FreeIsland
             var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
             disabled.Setters.Add(new Setter(UIElement.OpacityProperty, .47)); template.Triggers.Add(disabled);
             button.Template = template;
+            button.ApplyTemplate();
+            var surface = button.Template.FindName("GlassMaterial", button) as LiquidGlassSurface;
+            if (surface != null) surface.InkHost = button;
             if ((bool)button.GetValue(PointerWiredProperty)) return;
             button.SetValue(PointerWiredProperty, true);
-            Action<Point?> pointer = delegate(Point? point)
-            {
-                var surface = button.Template.FindName("GlassMaterial", button) as LiquidGlassSurface;
-                if (surface != null) surface.Pointer(point);
-            };
+            Action<Point?> pointer = delegate(Point? point) { var s = button.Template.FindName("GlassMaterial", button) as LiquidGlassSurface; if (s != null) s.Pointer(point); };
             button.MouseMove += delegate(object sender, MouseEventArgs e) { pointer(e.GetPosition(button)); };
             button.MouseLeave += delegate { pointer(null); };
             button.TouchMove += delegate(object sender, TouchEventArgs e) { pointer(e.GetTouchPoint(button).Position); };
             button.TouchUp += delegate { pointer(null); };
-            button.IsVisibleChanged += delegate { if (!button.IsVisible) pointer(null); };
         }
     }
 }

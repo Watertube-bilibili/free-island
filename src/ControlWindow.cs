@@ -198,8 +198,8 @@ namespace FreeIsland
             placement.Children.Add(Divider(classroom ? 18 : 16));
             placement.Children.Add(T("液态玻璃", classroom ? 23 : 19, ink, FontWeights.SemiBold));
             var glassHint = T("", SmallSize, muted, FontWeights.Normal, new Thickness(0, 7, 0, 12));
-            string[] glassDescriptions = { "纯色表面，清晰安静。", "轻柔透光与固定边缘反光。", "更丰富的曲面反射，指针经过时出现局部高光。" };
-            string[] glassNames = { "关闭", "轻量", "标准" };
+            string[] glassDescriptions = { "纯色表面，清晰安静。", "清透表面与细水滴边缘，低占用；适合录屏、共享和低配置电脑。", "实时折射下方画面，按压与拖动时柔和形变。需要 Windows 10 2004 或更新版本；录屏和屏幕共享可能看不到浮窗。不支持时显示清透轻量材质。" };
+            string[] glassNames = { "关闭", "轻量", "水滴" };
             string[] glassIds = { "GlassModeOff", "GlassModeLite", "GlassModeStandard" };
             var glassButtons = new Dictionary<int, Button>();
             var glassChoices = new UniformGrid { Columns = 3, Margin = new Thickness(-5, 0, -5, 0) };
@@ -219,7 +219,7 @@ namespace FreeIsland
                 int mode = i;
                 var button = Btn(glassNames[i], delegate { engine.Settings.GlassMode = mode; engine.SaveSettings(); updateGlassChoice(); Notify("已切换为" + glassNames[mode] + "玻璃外观。"); });
                 button.Name = glassIds[i]; button.Margin = new Thickness(5, 0, 5, 0);
-                System.Windows.Automation.AutomationProperties.SetName(button, glassNames[i] + "液态玻璃");
+                System.Windows.Automation.AutomationProperties.SetName(button, (i == 2 ? "标准" : glassNames[i]) + "液态玻璃");
                 button.ToolTip = glassDescriptions[i]; glassButtons.Add(i, button); glassChoices.Children.Add(button);
             }
             updateGlassChoice(); placement.Children.Add(glassHint); placement.Children.Add(glassChoices); placement.Children.Add(Divider(classroom ? 18 : 16));

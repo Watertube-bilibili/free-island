@@ -68,10 +68,16 @@ namespace FreeIsland
             border.Name = "Surface"; hover.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#E2E9F8"), "Surface")); template.Triggers.Add(hover);
             var focus = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true };
             focus.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#263DAF"), "Surface")); focus.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(2), "Surface")); template.Triggers.Add(focus);
-            button.Template = template; button.PreviewMouseLeftButtonDown += delegate { Scale(button, 1, .96, 95); };
-            button.PreviewMouseLeftButtonUp += delegate { Scale(button, .96, 1, 170); };
+            button.Template = template; button.PreviewMouseLeftButtonDown += delegate { if (!UsesOpticalMaterial(button)) Scale(button, 1, .96, 95); };
+            button.PreviewMouseLeftButtonUp += delegate { if (!UsesOpticalMaterial(button)) Scale(button, .96, 1, 170); };
             button.Click += delegate { action(); };
             return button;
+        }
+        private static bool UsesOpticalMaterial(Button button)
+        {
+            if (!LiquidGlass.IsWaterButton(button)) return false;
+            var material = button.Template.FindName("GlassMaterial", button) as LiquidGlassSurface;
+            return material != null && material.Mode != 0;
         }
     }
 
@@ -100,15 +106,16 @@ namespace FreeIsland
             MouseLeftButtonDown += Press;
             MouseMove += Move;
             MouseLeftButtonUp += Release;
-            LostMouseCapture += delegate { pointerDown = false; };
-            MouseEnter += delegate { hideTimer.Stop(); if (tucked) hoverTimer.Start(); else SurfaceStyle.Scale((FrameworkElement)Content, 1, 1.04, 180); };
-            MouseLeave += delegate { hoverTimer.Stop(); if (!tucked) SurfaceStyle.Scale((FrameworkElement)Content, 1.04, 1, 200); ScheduleHide(); };
+            LostMouseCapture += delegate { pointerDown = false; SetMaterialPressed(false); };
+            IsVisibleChanged += delegate { if (!IsVisible) SetMaterialPressed(false); };
+            MouseEnter += delegate { hideTimer.Stop(); if (tucked) hoverTimer.Start(); else if (engine.Settings.GlassMode == 0) SurfaceStyle.Scale((FrameworkElement)Content, 1, 1.04, 180); };
+            MouseLeave += delegate { hoverTimer.Stop(); if (!tucked && engine.Settings.GlassMode == 0) SurfaceStyle.Scale((FrameworkElement)Content, 1.04, 1, 200); ScheduleHide(); };
             bool touchWasTucked = false;
             TouchWindowDrag.Attach(this, null,
-                delegate { hideTimer.Stop(); hoverTimer.Stop(); SurfaceStyle.StopPosition(this); touchWasTucked = tucked; Reveal(); pointerDown = true; SurfaceStyle.Scale((FrameworkElement)Content, 1, .94, 100); },
+                delegate { hideTimer.Stop(); hoverTimer.Stop(); SurfaceStyle.StopPosition(this); touchWasTucked = tucked; Reveal(); pointerDown = true; SetMaterialPressed(true); if (engine.Settings.GlassMode == 0) SurfaceStyle.Scale((FrameworkElement)Content, 1, .94, 100); },
                 delegate { if (!touchWasTucked) clicked(); },
-                delegate(Point point) { pointerDown = false; SnapAndSave(); },
-                delegate { pointerDown = false; if (!tucked) SurfaceStyle.Scale((FrameworkElement)Content, .94, 1, 220); ScheduleHide(); });
+                delegate(Point point) { pointerDown = false; SetMaterialPressed(false); SnapAndSave(); },
+                delegate { pointerDown = false; SetMaterialPressed(false); if (!tucked && engine.Settings.GlassMode == 0) SurfaceStyle.Scale((FrameworkElement)Content, .94, 1, 220); ScheduleHide(); });
             var context = new ContextMenu();
             AddMenu(context, "打开控制中心", delegate { navigate("home"); });
             AddMenu(context, "设置", delegate { navigate("settings"); });
@@ -131,7 +138,13 @@ namespace FreeIsland
             hideTimer.Stop(); hoverTimer.Stop();
             SurfaceStyle.StopPosition(this);
             if (tucked) { Reveal(); e.Handled = true; return; }
-            mouseStart = Native.Cursor(this); windowStart = new Point(Left, Top); pointerDown = true; dragged = false; CaptureMouse(); SurfaceStyle.Scale((FrameworkElement)Content, 1, .94, 100); e.Handled = true;
+            mouseStart = Native.Cursor(this); windowStart = new Point(Left, Top); pointerDown = true; dragged = false; CaptureMouse(); SetMaterialPressed(true);
+            if (engine.Settings.GlassMode == 0) SurfaceStyle.Scale((FrameworkElement)Content, 1, .94, 100); e.Handled = true;
+        }
+        private void SetMaterialPressed(bool pressed)
+        {
+            var host = Content as DependencyObject;
+            if (host != null) LiquidGlass.Press(host, pressed);
         }
         private void Move(object sender, MouseEventArgs e)
         {
@@ -142,9 +155,10 @@ namespace FreeIsland
         }
         private void Release(object sender, MouseButtonEventArgs e)
         {
+            SetMaterialPressed(false);
             if (!pointerDown) return;
             pointerDown = false; ReleaseMouseCapture();
-            if (!tucked) SurfaceStyle.Scale((FrameworkElement)Content, .94, 1, 220);
+            if (!tucked && engine.Settings.GlassMode == 0) SurfaceStyle.Scale((FrameworkElement)Content, .94, 1, 220);
             if (dragged) { SnapAndSave(); } else clicked();
             e.Handled = true;
         }
@@ -192,7 +206,10 @@ namespace FreeIsland
             double cx = Left + Width / 2, cy = Top + Height / 2;
             tucked = false; Width = SceneMetrics.BallSize(engine); Height = Width;
             Left = Math.Max(area.Left, Math.Min(cx - Width / 2, area.Right - Width)); Top = Math.Max(area.Top, Math.Min(cy - Height / 2, area.Bottom - Height));
-            RenderBall(); SurfaceStyle.Scale((FrameworkElement)Content, .72, 1, 260); ScheduleHide();
+            RenderBall();
+            if (engine.Settings.GlassMode == 0) SurfaceStyle.Scale((FrameworkElement)Content, .72, 1, 260);
+            else if (engine.Settings.GlassMode == 2) LiquidGlass.Arrive((DependencyObject)Content);
+            ScheduleHide();
         }
         public void ApplyScene() { Reveal(); Width = SceneMetrics.BallSize(engine); Height = Width; RenderBall(); EnsureOnScreen(); }
         public void ApplyMaterial() { if (!tucked && materialMode != engine.Settings.GlassMode) RenderBall(); }
@@ -272,7 +289,8 @@ namespace FreeIsland
         }
         public void ApplyMaterial()
         {
-            if (materialMode == engine.Settings.GlassMode) return; materialMode = engine.Settings.GlassMode; foreach (Button button in choices) LiquidGlass.Button(button, engine.Settings.GlassMode);
+            if (materialMode == engine.Settings.GlassMode) return; materialMode = engine.Settings.GlassMode;
+            foreach (Button button in choices) { LiquidGlass.Button(button, engine.Settings.GlassMode); if (materialMode != 0) button.RenderTransform = Transform.Identity; }
             centerOrb.Content = SurfaceStyle.Orb(54, engine.Settings.GlassMode);
         }
         public void OpenAt(double x, double y, Rect work)
@@ -281,28 +299,34 @@ namespace FreeIsland
             Left = Math.Max(work.Left + 4, Math.Min(x - Width / 2, work.Right - Width - 4));
             Top = Math.Max(work.Top + 4, Math.Min(y - Height / 2, work.Bottom - Height - 4));
             Show(); Activate();
-            SurfaceStyle.Fade(canvas, .3, 1, 180, null);
+            if (engine.Settings.GlassMode == 1) { canvas.BeginAnimation(UIElement.OpacityProperty, null); canvas.Opacity = 1; }
+            else SurfaceStyle.Fade(canvas, .3, 1, engine.Settings.GlassMode == 2 ? 220 : 180, null);
+            if (engine.Settings.GlassMode == 2 && !SurfaceStyle.SnapshotMode) LiquidGlass.Arrive(centerOrb);
             for (int i = 0; i < choices.Count; i++)
             {
                 var button = choices[i];
-                if (SurfaceStyle.SnapshotMode) { button.RenderTransform = Transform.Identity; continue; }
+                if (SurfaceStyle.SnapshotMode || engine.Settings.GlassMode == 1) { button.RenderTransform = Transform.Identity; continue; }
                 var translate = new TranslateTransform(); var scale = new ScaleTransform(1, 1);
-                var group = new TransformGroup(); group.Children.Add(scale); group.Children.Add(translate);
+                var group = new TransformGroup(); if (engine.Settings.GlassMode == 0) group.Children.Add(scale); group.Children.Add(translate);
                 button.RenderTransformOrigin = new Point(.5, .5); button.RenderTransform = group;
                 double angle = (-90 + i * 60) * Math.PI / 180;
-                var ease = new BackEase { Amplitude = .35, EasingMode = EasingMode.EaseOut };
-                TimeSpan delay = TimeSpan.FromMilliseconds(i * 16);
+                IEasingFunction ease = engine.Settings.GlassMode == 0 ? (IEasingFunction)new BackEase { Amplitude = .35, EasingMode = EasingMode.EaseOut } : new CubicEase { EasingMode = EasingMode.EaseOut };
+                TimeSpan delay = TimeSpan.FromMilliseconds(i * (engine.Settings.GlassMode == 2 ? 10 : 16));
                 translate.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-Math.Cos(angle) * 28, 0, TimeSpan.FromMilliseconds(240)) { BeginTime = delay, EasingFunction = ease });
                 translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(-Math.Sin(angle) * 28, 0, TimeSpan.FromMilliseconds(240)) { BeginTime = delay, EasingFunction = ease });
-                scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(.74, 1, TimeSpan.FromMilliseconds(240)) { BeginTime = delay, EasingFunction = ease });
-                scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(.74, 1, TimeSpan.FromMilliseconds(240)) { BeginTime = delay, EasingFunction = ease });
+                if (engine.Settings.GlassMode == 0)
+                {
+                    scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(.74, 1, TimeSpan.FromMilliseconds(240)) { BeginTime = delay, EasingFunction = ease });
+                    scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(.74, 1, TimeSpan.FromMilliseconds(240)) { BeginTime = delay, EasingFunction = ease });
+                }
+                else LiquidGlass.Arrive(button);
             }
         }
         public void Dismiss()
         {
             if (!IsVisible || dismissing) return;
             dismissing = true; int version = ++motionVersion;
-            SurfaceStyle.Fade(canvas, canvas.Opacity, 0, 125, delegate
+            SurfaceStyle.Fade(canvas, canvas.Opacity, 0, engine.Settings.GlassMode == 1 ? 0 : 125, delegate
             {
                 if (version != motionVersion) return;
                 Hide(); dismissed(); dismissing = false;
@@ -365,7 +389,7 @@ namespace FreeIsland
                 if (IsButtonSource(e.OriginalSource as DependencyObject)) return;
                 SurfaceStyle.StopPosition(this);
                 dragStart = Native.Cursor(this); positionStart = new Point(Left, Top);
-                pointerDown = true; dragged = false; CaptureMouse(); e.Handled = true;
+                pointerDown = true; dragged = false; CaptureMouse(); LiquidGlass.Press(card, true); e.Handled = true;
             };
             MouseMove += delegate(object sender, MouseEventArgs e)
             {
@@ -376,17 +400,18 @@ namespace FreeIsland
             };
             MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
             {
+                LiquidGlass.Press(card, false);
                 if (!pointerDown) return;
                 pointerDown = false; ReleaseMouseCapture();
                 if (dragged && dropped != null) dropped(new Point(Left + Width / 2, Top + Height / 2));
                 KeepOpenAfterDrag(); e.Handled = true;
             };
-            LostMouseCapture += delegate { pointerDown = false; };
+            LostMouseCapture += delegate { pointerDown = false; LiquidGlass.Press(card, false); };
             TouchWindowDrag.Attach(this, delegate(DependencyObject source) { return !IsButtonSource(source); },
-                delegate { SurfaceStyle.StopPosition(this); pointerDown = true; },
+                delegate { SurfaceStyle.StopPosition(this); pointerDown = true; LiquidGlass.Press(card, true); },
                 KeepOpenAfterDrag,
-                delegate(Point point) { pointerDown = false; if (dropped != null) dropped(point); },
-                delegate { pointerDown = false; KeepOpenAfterDrag(); });
+                delegate(Point point) { pointerDown = false; LiquidGlass.Press(card, false); if (dropped != null) dropped(point); },
+                delegate { pointerDown = false; LiquidGlass.Press(card, false); KeepOpenAfterDrag(); });
             SourceInitialized += delegate
             {
                 var source = PresentationSource.FromVisual(this) as HwndSource;
@@ -401,7 +426,7 @@ namespace FreeIsland
             ApplyMaterial();
             Reposition();
         }
-        public void ApplyMaterial() { if (materialMode == engine.Settings.GlassMode) return; materialMode = engine.Settings.GlassMode; material.Mode = materialMode; card.Effect = materialMode == 2 ? new DropShadowEffect { BlurRadius = 15, Opacity = .14, ShadowDepth = 4, Color = Color.FromRgb(35, 51, 83) } : null; }
+        public void ApplyMaterial() { if (materialMode == engine.Settings.GlassMode) return; materialMode = engine.Settings.GlassMode; material.Mode = materialMode; if (materialMode != 0) card.RenderTransform = Transform.Identity; card.Effect = materialMode == 2 ? new DropShadowEffect { BlurRadius = 15, Opacity = .14, ShadowDepth = 4, Color = Color.FromRgb(35, 51, 83) } : null; }
         private void SetIcon(string name) { if (iconName == name) return; iconName = name; symbol.Content = AppVisual.Icon(name, 28, SurfaceStyle.Brush("#4F66E8")); }
         private static bool IsButtonSource(DependencyObject source)
         {
@@ -453,7 +478,14 @@ namespace FreeIsland
             motionVersion++; collapsing = false; SurfaceStyle.StopPosition(this);
             visibleUntil = DateTime.UtcNow.AddSeconds(seconds); Reposition(); Show(); hideTimer.Start();
             var handler = Expanded; if (handler != null) handler(this, EventArgs.Empty);
-            SurfaceStyle.Scale(card, .76, 1, 290); SurfaceStyle.Fade(card, .3, 1, 200, null);
+            LiquidGlass.Press(card, false);
+            if (engine.Settings.GlassMode == 0) { SurfaceStyle.Scale(card, .76, 1, 290); SurfaceStyle.Fade(card, .3, 1, 200, null); }
+            else
+            {
+                card.RenderTransform = Transform.Identity;
+                if (engine.Settings.GlassMode == 2) { LiquidGlass.Arrive(card); SurfaceStyle.Fade(card, .3, 1, 220, null); }
+                else { card.BeginAnimation(UIElement.OpacityProperty, null); card.Opacity = 1; }
+            }
         }
         public void Reposition()
         {
@@ -474,10 +506,12 @@ namespace FreeIsland
         {
             if (collapsing) return;
             collapsing = true; int version = ++motionVersion; hideTimer.Stop();
-            SurfaceStyle.Scale(card, 1, .78, 160);
-            SurfaceStyle.Fade(card, 1, 0, 140, delegate
+            if (engine.Settings.GlassMode == 0) SurfaceStyle.Scale(card, 1, .78, 160);
+            else { card.RenderTransform = Transform.Identity; LiquidGlass.Press(card, engine.Settings.GlassMode == 2); }
+            SurfaceStyle.Fade(card, card.Opacity, 0, engine.Settings.GlassMode == 1 ? 0 : 140, delegate
             {
                 if (version != motionVersion) return;
+                LiquidGlass.Press(card, false);
                 Hide(); collapsing = false;
                 var handler = Collapsed; if (handler != null) handler(this, EventArgs.Empty);
             });

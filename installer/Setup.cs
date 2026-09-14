@@ -35,11 +35,42 @@ namespace FreeIsland.Installation
                     return 1;
                 }
             }
-            if (args.Length > 0) return 2;
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            try { using (Common.HoldSetupInstance()) Application.Run(new SetupForm()); return 0; }
+            IDisposable setupGuard = null;
+            try
+            {
+                SetupOptions options = SetupOptions.Parse(args);
+                if (options.UserSid != null) Common.ValidateElevationUser(options.UserSid);
+                // Read the existing installation choices before changing the target path.
+                bool upgrade = Common.IsInstalled();
+                bool startup = options.Startup ?? (!upgrade || Common.IsStartupEnabled());
+                bool desktop = options.Desktop ?? (!upgrade || Common.HasOwnedShortcut(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)));
+                if (options.InstallDirectory != null) Common.ConfigureInstallPath(options.InstallDirectory);
+                Action releaseGuard = delegate { if (setupGuard != null) { setupGuard.Dispose(); setupGuard = null; } };
+                Action restoreGuard = delegate { if (setupGuard == null) setupGuard = Common.HoldSetupInstance(); };
+                if (options.PreviewPath == null) restoreGuard();
+                using (SetupForm form = new SetupForm(startup, desktop, releaseGuard, restoreGuard))
+                {
+                    if (options.PreviewPath != null)
+                    {
+                        // Rendering only: no install, elevation, shortcut or registry write.
+                        form.StartPosition = FormStartPosition.Manual;
+                        form.Location = new Point(-32000, -32000);
+                        form.ShowInTaskbar = false;
+                        form.Opacity = 0;
+                        form.Show();
+                        Application.DoEvents();
+                        using (Bitmap bitmap = new Bitmap(form.Width, form.Height))
+                        { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.GetFullPath(options.PreviewPath), System.Drawing.Imaging.ImageFormat.Png); }
+                        form.Close();
+                    }
+                    else Application.Run(form);
+                }
+                return 0;
+            }
             catch (Exception error) { MessageBox.Show(error.Message, Common.Product, MessageBoxButtons.OK, MessageBoxIcon.Error); return 1; }
+            finally { if (setupGuard != null) setupGuard.Dispose(); }
         }
 
         internal static Dictionary<string, byte[]> ReadPayload()
@@ -92,12 +123,12 @@ namespace FreeIsland.Installation
             }
             using (Common.HoldAppInstance())
             {
-            Common.ValidateInstallPath(Common.InstallPath);
+            Common.ValidateInstallTarget();
             progress(12, "正在校验安装包…");
             Dictionary<string, byte[]> payload = ReadPayload();
             progress(28, "正在准备安装…");
             Common.StopInstalledApp();
-            Common.ValidateInstallPath(Common.InstallPath);
+            Common.ValidateInstallTarget();
             Directory.CreateDirectory(Common.InstallPath);
             string installMarker = Path.Combine(Common.InstallPath, "FreeIsland.install");
             if (File.Exists(installMarker) && (File.GetAttributes(installMarker) & FileAttributes.ReparsePoint) != 0)
@@ -115,15 +146,15 @@ namespace FreeIsland.Installation
             catch (Exception error) { warnings.Add("开始菜单快捷方式：" + error.Message); }
             try {
                 if (desktop) Common.CreateShortcut(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
-                else Common.RemoveOwnedShortcut(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+                else Common.RemoveOwnedShortcut(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), true);
             } catch (Exception error) { warnings.Add("桌面快捷方式：" + error.Message); }
-            try { Common.SetStartup(startup); }
+            try { Common.SetStartup(startup, true); }
             catch (Exception error) { warnings.Add("开机启动设置：" + error.Message); }
             try {
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey(Common.UninstallKey))
             {
                 key.SetValue("DisplayName", Common.Product);
-                key.SetValue("DisplayVersion", "1.0.1");
+                key.SetValue("DisplayVersion", "1.0.2");
                 key.SetValue("Publisher", "Free Island");
                 key.SetValue("InstallLocation", Common.InstallPath);
                 key.SetValue("DisplayIcon", Path.Combine(Common.InstallPath, "FreeIsland.exe"));
@@ -137,7 +168,7 @@ namespace FreeIsland.Installation
             }
             } catch (Exception error) { warnings.Add("卸载记录：" + error.Message + "。仍可运行安装目录中的 FreeIsland.Uninstall.exe 卸载。"); }
             progress(100, "安装完成，欢迎来到浮岛。");
-            Common.WriteLog("Installed version 1.0.1 at " + Common.InstallPath);
+            Common.WriteLog("Installed version 1.0.2 at " + Common.InstallPath);
             string warning = String.Join(Environment.NewLine + Environment.NewLine, warnings.ToArray());
             if (warning.Length != 0) Common.WriteLog("Installed with integration warnings: " + warning);
             return warning;
@@ -145,21 +176,65 @@ namespace FreeIsland.Installation
         }
     }
 
+    internal sealed class SetupOptions
+    {
+        internal string InstallDirectory, UserSid, PreviewPath;
+        internal bool? Startup, Desktop;
+
+        internal static SetupOptions Parse(string[] args)
+        {
+            SetupOptions options = new SetupOptions();
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < args.Length; index += 2)
+            {
+                string key = args[index];
+                if (index + 1 >= args.Length || !seen.Add(key)) throw new ArgumentException("安装参数缺少取值或重复，请直接打开安装包重试。");
+                string value = args[index + 1];
+                if (key == "--install-dir") options.InstallDirectory = value;
+                else if (key == "--user-sid")
+                {
+                    if (String.IsNullOrWhiteSpace(value)) throw new ArgumentException("缺少原 Windows 账户标识，请从原账户重新打开安装包。");
+                    options.UserSid = value;
+                }
+                else if (key == "--preview") options.PreviewPath = value;
+                else if (key == "--startup" || key == "--desktop")
+                {
+                    bool enabled;
+                    if (!Boolean.TryParse(value, out enabled)) throw new ArgumentException(key + " 只接受 true 或 false。");
+                    if (key == "--startup") options.Startup = enabled; else options.Desktop = enabled;
+                }
+                else throw new ArgumentException("不支持的安装参数：" + key);
+            }
+            return options;
+        }
+    }
+
     internal sealed class SetupForm : Form
     {
         private readonly CheckBox startup;
         private readonly CheckBox desktop;
+        private readonly TextBox location;
+        private readonly Label locationHint;
+        private readonly Button browse;
+        private readonly Button elevate;
         private readonly Label status;
         private readonly ProgressBar progress;
         private readonly Button primary;
         private readonly Button cancel;
+        private readonly Action releaseSetupGuard, restoreSetupGuard;
+        private readonly string registeredInstallPath;
+        private readonly ToolTip pathTip;
         private bool busy;
         private bool installed;
+        private bool needsElevation;
 
-        internal SetupForm()
+        internal SetupForm(bool startupChoice, bool desktopChoice, Action releaseGuard, Action restoreGuard)
         {
+            releaseSetupGuard = releaseGuard;
+            restoreSetupGuard = restoreGuard;
+            registeredInstallPath = Common.RegisteredInstallPath;
             Text = "浮岛 Free Island · 安装";
-            ClientSize = new Size(600, 440);
+            ClientSize = new Size(600, 562);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -172,30 +247,141 @@ namespace FreeIsland.Installation
             Label title = MakeLabel("把时间交给浮岛，把专注留给自己。", 32, 150, 540, 28, 13F, FontStyle.Bold);
             Controls.Add(title);
             Controls.Add(MakeLabel("触屏大按钮 · 全屏课堂计时 · 静默自启动", 33, 187, 535, 23, 9F, FontStyle.Regular));
-            Label location = MakeLabel("安装位置：" + Common.InstallPath, 33, 216, 530, 21, 8F, FontStyle.Regular);
-            location.ForeColor = Color.FromArgb(87, 99, 123);
-            location.AutoEllipsis = true;
+            Controls.Add(MakeLabel("安装位置", 33, 221, 530, 20, 9F, FontStyle.Bold));
+            location = new TextBox { Name = "InstallDirectory", AccessibleName = "安装位置", Text = Common.InstallPath, Location = new Point(34, 249), Size = new Size(426, 36), AutoSize = false, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Microsoft YaHei UI", 10F), ForeColor = ForeColor, BackColor = Color.White, TabIndex = 0 };
             Controls.Add(location);
-            new ToolTip().SetToolTip(location, Common.InstallPath);
+            browse = MakeButton("浏览…", 472, 249, 94, Color.White, ForeColor);
+            browse.TabIndex = 1;
+            browse.Click += BrowseClick;
+            Controls.Add(browse);
+            locationHint = MakeLabel("", 33, 293, 530, 40, 8F, FontStyle.Regular);
+            locationHint.ForeColor = Color.FromArgb(87, 99, 123);
+            Controls.Add(locationHint);
+            pathTip = new ToolTip();
+            pathTip.SetToolTip(location, location.Text);
             bool upgrade = Common.IsInstalled();
-            startup = new CheckBox { Text = "开机静默启动（不弹出主窗口）", Checked = !upgrade || Common.IsStartupEnabled(), Location = new Point(34, 251), Size = new Size(500, 24), ForeColor = ForeColor };
-            desktop = new CheckBox { Text = "创建桌面快捷方式", Checked = !upgrade || Common.HasOwnedShortcut(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)), Location = new Point(34, 282), Size = new Size(500, 24), ForeColor = ForeColor };
+            startup = new CheckBox { Text = "开机静默启动（不弹出主窗口）", Checked = startupChoice, Location = new Point(34, 337), Size = new Size(530, 36), ForeColor = ForeColor, TabIndex = 2 };
+            desktop = new CheckBox { Text = "创建桌面快捷方式", Checked = desktopChoice, Location = new Point(34, 375), Size = new Size(530, 36), ForeColor = ForeColor, TabIndex = 3 };
             Controls.Add(startup);
             Controls.Add(desktop);
-            status = MakeLabel(upgrade ? "将升级已有安装；保留设置和日程，选项已沿用当前状态。" : "仅为当前用户安装，无需管理员权限。", 33, 320, 530, 22, 8F, FontStyle.Regular);
+            status = MakeLabel("", 33, 421, 530, 49, 8.5F, FontStyle.Regular);
             status.ForeColor = Color.FromArgb(87, 99, 123);
             Controls.Add(status);
-            progress = new ProgressBar { Location = new Point(34, 351), Size = new Size(532, 5), Minimum = 0, Maximum = 100, Visible = false };
+            progress = new ProgressBar { Location = new Point(34, 480), Size = new Size(532, 5), Minimum = 0, Maximum = 100, Visible = false };
             Controls.Add(progress);
-            cancel = MakeButton("取消", 338, 376, 96, Color.White, ForeColor);
+            elevate = MakeButton("管理员重试", 34, 505, 132, Color.White, ForeColor);
+            elevate.Visible = false;
+            elevate.TabIndex = 4;
+            elevate.Click += ElevateClick;
+            Controls.Add(elevate);
+            cancel = MakeButton("取消", 338, 505, 96, Color.White, ForeColor);
+            cancel.TabIndex = 5;
             cancel.Click += delegate { Close(); };
             Controls.Add(cancel);
-            primary = MakeButton(upgrade ? "升级浮岛" : "安装浮岛", 446, 376, 120, Color.FromArgb(79, 102, 232), Color.White);
+            primary = MakeButton(upgrade ? "升级浮岛" : "安装浮岛", 446, 505, 120, Color.FromArgb(79, 102, 232), Color.White);
+            primary.TabIndex = 6;
             primary.Click += PrimaryClick;
             Controls.Add(primary);
             AcceptButton = primary;
             CancelButton = cancel;
             FormClosing += delegate(object sender, FormClosingEventArgs e) { if (busy) e.Cancel = true; };
+            location.TextChanged += delegate { if (!busy && !installed) { needsElevation = false; elevate.Visible = false; UpdateLocationMessage(false); } };
+            UpdateLocationMessage(false);
+            FormClosed += delegate { pathTip.Dispose(); };
+        }
+
+        private void UpdateLocationMessage(bool validate)
+        {
+            pathTip.SetToolTip(location, location.Text);
+            if (validate) Common.ConfigureInstallPath(location.Text.Trim());
+            bool moved = !String.IsNullOrWhiteSpace(registeredInstallPath) && !Common.SamePath(location.Text.Trim(), registeredInstallPath);
+            locationHint.Text = moved ? "旧目录中的程序文件会保留，设置和日程继续共用。" : "可选择本地文件夹。应用设置和日程保存在当前账户中。";
+            locationHint.ForeColor = Color.FromArgb(87, 99, 123);
+            status.Text = moved ? "确认安装目录和选项后，点击“安装浮岛”。" :
+                (!String.IsNullOrWhiteSpace(registeredInstallPath) ? "将升级已有安装；保留设置和日程，选项已沿用当前状态。" : "默认目录可直接安装；其他目录可能需要管理员权限。");
+            status.ForeColor = Color.FromArgb(87, 99, 123);
+            if (!installed) primary.Text = !moved && !String.IsNullOrWhiteSpace(registeredInstallPath) ? "升级浮岛" : "安装浮岛";
+        }
+
+        private bool ConfigureLocation()
+        {
+            try { UpdateLocationMessage(true); location.Text = Common.InstallPath; return true; }
+            catch (Exception error)
+            {
+                locationHint.Text = "安装位置无效。";
+                locationHint.ForeColor = Color.FromArgb(158, 50, 64);
+                status.Text = "请修改安装目录后重试。";
+                ShowInstallError(error);
+                location.Focus();
+                return false;
+            }
+        }
+
+        private void BrowseClick(object sender, EventArgs e)
+        {
+            using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+            {
+                dialog.Description = "选择浮岛的安装文件夹";
+                dialog.ShowNewFolderButton = true;
+                try { if (Directory.Exists(location.Text)) dialog.SelectedPath = location.Text; } catch { }
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                location.Text = dialog.SelectedPath;
+                ConfigureLocation();
+            }
+        }
+
+        private static bool IsAccessDenied(Exception error)
+        {
+            for (Exception current = error; current != null; current = current.InnerException)
+            {
+                Win32Exception native = current as Win32Exception;
+                if ((native != null && native.NativeErrorCode == 5) || (current.HResult & 0xFFFF) == 5) return true;
+            }
+            return false;
+        }
+
+        private void ShowInstallError(Exception error)
+        {
+            needsElevation = IsAccessDenied(error) && !Common.IsAdministrator();
+            elevate.Visible = needsElevation;
+            status.Text = needsElevation ? "此目录的访问被拒绝。可更换目录，或点击“管理员重试”。" : "安装未完成，请根据提示处理后重试。";
+            status.ForeColor = Color.FromArgb(158, 50, 64);
+            Common.WriteLog(error.ToString());
+            MessageBox.Show(this, error.Message + "\n\n日志位置：" + Path.Combine(Path.GetTempPath(), "FreeIsland-Logs", "installation.log"), "浮岛安装未完成", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+        private void ElevateClick(object sender, EventArgs e)
+        {
+            if (busy || installed || !needsElevation || Common.IsAdministrator()) return;
+            string arguments;
+            try { arguments = Common.ElevationArguments(location.Text.Trim(), startup.Checked, desktop.Checked); }
+            catch (Exception error) { ShowInstallError(error); return; }
+            busy = true;
+            startup.Enabled = desktop.Enabled = location.Enabled = browse.Enabled = primary.Enabled = cancel.Enabled = elevate.Enabled = false;
+            try
+            {
+                // Release the singleton before opening the elevated copy. A cancelled
+                // prompt reacquires it, while a successful launch closes this window.
+                releaseSetupGuard();
+                using (Process process = Process.Start(new ProcessStartInfo(Application.ExecutablePath, arguments) { UseShellExecute = true, Verb = "runas", WorkingDirectory = Path.GetDirectoryName(Application.ExecutablePath) }))
+                { if (process == null) throw new IOException("没有启动管理员安装窗口，请重试。"); }
+                busy = false;
+                Close();
+            }
+            catch (Exception error)
+            {
+                busy = false;
+                try { restoreSetupGuard(); }
+                catch (Exception guardError) { MessageBox.Show(this, guardError.Message, Common.Product, MessageBoxButtons.OK, MessageBoxIcon.Information); Close(); return; }
+                startup.Enabled = desktop.Enabled = location.Enabled = browse.Enabled = primary.Enabled = cancel.Enabled = elevate.Enabled = true;
+                Win32Exception cancelled = error as Win32Exception;
+                if (cancelled != null && cancelled.NativeErrorCode == 1223)
+                {
+                    status.Text = "已取消管理员授权。可继续选择其他目录或重新尝试。";
+                    status.ForeColor = Color.FromArgb(87, 99, 123);
+                }
+                else { status.Text = "管理员安装窗口未能打开，原选项已保留。"; MessageBox.Show(this, error.Message, "无法打开管理员安装窗口", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            }
         }
 
         private static Label MakeLabel(string text, int x, int y, int width, int height, float size, FontStyle style)
@@ -218,14 +404,20 @@ namespace FreeIsland.Installation
         {
             if (installed)
             {
+                // Applications launched by an elevated setup would inherit its
+                // token. Let Explorer launch the app at the user's normal level.
+                if (Common.IsAdministrator()) { Close(); return; }
                 try { Process.Start(new ProcessStartInfo(Path.Combine(Common.InstallPath, "FreeIsland.exe")) { WorkingDirectory = Common.InstallPath, UseShellExecute = true }); Close(); }
                 catch (Exception error) { MessageBox.Show(this, "应用启动失败：" + error.Message, Common.Product, MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 return;
             }
+            if (!ConfigureLocation()) return;
             bool enableStartup = startup.Checked;
             bool enableDesktop = desktop.Checked;
+            needsElevation = false;
+            elevate.Visible = false;
             busy = true;
-            startup.Enabled = desktop.Enabled = primary.Enabled = cancel.Enabled = false;
+            startup.Enabled = desktop.Enabled = location.Enabled = browse.Enabled = primary.Enabled = cancel.Enabled = false;
             progress.Visible = true;
             BackgroundWorker worker = new BackgroundWorker { WorkerReportsProgress = true };
             worker.DoWork += delegate(object source, DoWorkEventArgs work) { work.Result = Setup.Install(enableStartup, enableDesktop, delegate(int percent, string message) { worker.ReportProgress(percent, message); }); };
@@ -236,18 +428,16 @@ namespace FreeIsland.Installation
                 primary.Enabled = cancel.Enabled = true;
                 if (result.Error != null)
                 {
-                    startup.Enabled = desktop.Enabled = true;
+                    startup.Enabled = desktop.Enabled = location.Enabled = browse.Enabled = true;
                     progress.Value = 0;
-                    status.Text = "安装未完成，可以修正问题后重试。";
-                    Common.WriteLog(result.Error.ToString());
-                    MessageBox.Show(this, result.Error.Message + "\n\n日志位置：" + Path.Combine(Path.GetTempPath(), "FreeIsland-Logs", "installation.log"), "浮岛安装未完成", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    ShowInstallError(result.Error);
                 }
                 else
                 {
                     installed = true;
-                    primary.Text = "打开浮岛";
+                    primary.Text = Common.IsAdministrator() ? "完成" : "打开浮岛";
                     cancel.Text = "完成";
-                    status.Text = "已安装。下次登录时会按所选设置静默启动。";
+                    status.Text = Common.IsAdministrator() ? "已安装到上方所选目录。请从桌面或开始菜单打开浮岛。" : "已安装到上方所选目录。下次登录时会按所选设置静默启动。";
                     status.ForeColor = Color.FromArgb(39, 105, 86);
                     string warning = result.Result as string;
                     if (!String.IsNullOrEmpty(warning))

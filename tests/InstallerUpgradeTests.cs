@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using FreeIsland.Installation;
@@ -21,6 +23,54 @@ internal static class InstallerUpgradeTests
         File.WriteAllText(Path.Combine(root,"FreeIsland.install"),Common.MarkerContents);
         File.WriteAllText(Path.Combine(root,"user-settings.keep"),"saved scene and reminders");
     }
+    private static void AttributePermissionRegression(string root) {
+        string file=Path.Combine(root,"FreeIsland.exe");
+        FileSecurity original=File.GetAccessControl(file,AccessControlSections.Access);
+        SecurityIdentifier user=WindowsIdentity.GetCurrent().User;
+        FileSystemAccessRule deny=new FileSystemAccessRule(user,FileSystemRights.WriteAttributes,AccessControlType.Deny);
+        FileSecurity restricted=File.GetAccessControl(file,AccessControlSections.Access);restricted.AddAccessRule(deny);File.SetAccessControl(file,restricted);
+        try {
+            bool legacyDenied=false;
+            try { File.SetAttributes(file,File.GetAttributes(file)&~FileAttributes.ReadOnly); } catch(UnauthorizedAccessException) { legacyDenied=true; }
+            Check(legacyDenied,"reproduced 1.0.1 failure: normal file denies unnecessary WRITE_ATTRIBUTES");
+            // This directory contains only the fixture. No application is running.
+            Common.ReplacePayload(Payload());
+            Check(File.ReadAllText(file)=="new executable","upgrade succeeds without WRITE_ATTRIBUTES on normal file");
+            Check(Directory.GetDirectories(root,".upgrade-*").Length==0,"attribute restriction leaves no false recovery directory");
+            restricted=File.GetAccessControl(file,AccessControlSections.Access);restricted.AddAccessRule(deny);File.SetAccessControl(file,restricted);
+            Common.DeletePayloadFile(file);
+            Check(!File.Exists(file),"uninstall helper succeeds without WRITE_ATTRIBUTES on normal file");
+        } finally {
+            if(File.Exists(file))File.SetAccessControl(file,original);
+            // Replacement preserves the target DACL on a backup. Restore any retained
+            // isolated fixture files too, so failed tests leave no restricted artifacts.
+            foreach(string directory in Directory.GetDirectories(root,".upgrade-*"))
+                foreach(string retained in Directory.GetFiles(directory))File.SetAccessControl(retained,original);
+        }
+    }
+    private static void DeleteRegression(string root) {
+        string file=Path.Combine(root,"delete-readonly.fixture");
+        File.WriteAllText(file,"retained until deletion succeeds");
+        File.SetAttributes(file,File.GetAttributes(file)|FileAttributes.ReadOnly);
+        string failure=null;
+        using(FileStream locked=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.Read)) {
+            try { Common.DeletePayloadFile(file); } catch(IOException error) { failure=error.Message; }
+            Check(failure!=null && failure.Contains("占用"),"uninstall sharing failure reports a file lock");
+            Check((File.GetAttributes(file)&FileAttributes.ReadOnly)!=0,"failed uninstall restores only its changed read-only attribute");
+        }
+        Common.DeletePayloadFile(file);
+        Check(!File.Exists(file),"uninstall deletes read-only file after lock is released");
+        Check(Common.AccessFailureMessage(new UnauthorizedAccessException()).Contains("错误 5"),"access denial is distinguished from file sharing");
+        Check(Common.AccessFailureMessage(new System.ComponentModel.Win32Exception(32)).Contains("占用"),"native Windows sharing error keeps its actual error code");
+    }
+    private static void UntouchedFailureRegression(string root) {
+        string failure=null;
+        Common.BeforeReplaceForTest=delegate(string path) { throw new UnauthorizedAccessException("isolated pre-write rejection"); };
+        try { Common.ReplacePayload(Payload()); } catch(IOException error) { failure=error.Message; }
+        finally { Common.BeforeReplaceForTest=null; }
+        Check(failure!=null && failure.Contains("尚未替换") && !failure.Contains("恢复操作未完成") && !failure.Contains("备份保留"),"pre-write rejection does not invent rollback failure or recovery backups");
+        Check(File.ReadAllText(Path.Combine(root,"FreeIsland.exe"))=="old executable" && Directory.GetDirectories(root,".upgrade-*").Length==0,"pre-write rejection preserves original files and removes new staging files");
+    }
     private static int Main(string[] args) {
         if(args.Length==2 && args[0]=="--child") {
             using (EventWaitHandle exit = new EventWaitHandle(false,EventResetMode.AutoReset,args[1]+".Exit"))
@@ -33,6 +83,10 @@ internal static class InstallerUpgradeTests
             Common.TestInstallPath=root; Common.TestInstancePrefix=@"Local\FreeIsland.InstallerTest."+Guid.NewGuid().ToString("N");
             Common.ReplacementTimeoutMilliseconds=350;
             Seed(root);
+            AttributePermissionRegression(root);
+            DeleteRegression(root);
+            Seed(root);
+            UntouchedFailureRegression(root);
             File.SetAttributes(Path.Combine(root,"FreeIsland.exe"),FileAttributes.ReadOnly);
             Common.ReplacePayload(Payload());
             Check(File.ReadAllText(Path.Combine(root,"FreeIsland.exe"))=="new executable","read-only existing executable upgraded");
@@ -43,9 +97,11 @@ internal static class InstallerUpgradeTests
             FileStream locked=null;
             Common.BeforeReplaceForTest=delegate(string path) { if(path.EndsWith(".config")) locked=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read); };
             bool failed=false;
-            try { Common.ReplacePayload(Payload()); } catch(IOException) { failed=true; }
+            string upgradeFailure=null;
+            try { Common.ReplacePayload(Payload()); } catch(IOException error) { failed=true; upgradeFailure=error.Message; }
             finally { if(locked!=null)locked.Dispose(); Common.BeforeReplaceForTest=null; }
             Check(failed,"persistent lock produces upgrade error");
+            Check(upgradeFailure.Contains("占用") && !upgradeFailure.Contains("浮岛仍在运行"),"upgrade sharing failure does not falsely identify the app as running");
             Check(File.ReadAllText(Path.Combine(root,"FreeIsland.exe"))=="old executable" && File.ReadAllText(Path.Combine(root,"FreeIsland.exe.config"))=="old config","failure after first replacement rolls back old installation");
             Check(Common.IsInstalled(),"installation marker survives failed upgrade");
             Common.ReplacementTimeoutMilliseconds=2000;

@@ -17,6 +17,23 @@ inline float Rebound(float progress){
     float t=std::max(0.0f,std::min(1.0f,progress));
     return (1-t)*(1-t)*std::cos(t*4.25f);
 }
+// Pixel-sized droplets need their own inset rim: the larger surface's nested
+// rounded paths would overlap or escape the visible bounds at 3-6 physical px.
+inline void PaintDot(Graphics& g,float x,float y,float diameter,int mode,float squeeze=0){
+    if(diameter<3)return;
+    GraphicsState saved=g.Save();g.SetClip(RectF(x,y,diameter,diameter),CombineModeIntersect);
+    if(mode<=0){SolidBrush black(Color(255,0,0,0));g.FillEllipse(&black,x,y,diameter,diameter);g.Restore(saved);return;}
+    if(mode==2&&diameter>=6){float compression=.025f*std::max(0.0f,std::min(1.0f,squeeze));g.TranslateTransform(x+diameter/2,y+diameter/2);g.ScaleTransform(1,1-compression);g.TranslateTransform(-x-diameter/2,-y-diameter/2);}
+    Color colors[]={Color(52,245,249,253),Color(32,229,237,246),Color(40,234,241,249),Color(54,249,252,255)};
+    REAL positions[]={0,.32f,.76f,1};
+    LinearGradientBrush body(PointF(x,y),PointF(x,y+diameter),colors[0],colors[3]);body.SetInterpolationColors(colors,positions,4);
+    g.FillEllipse(&body,x,y,diameter,diameter);
+    float stroke=std::min(.85f,diameter*.20f),inset=stroke/2+.08f;
+    LinearGradientBrush rim(PointF(x,y),PointF(x+diameter*.62f,y+diameter),Color(mode==2?210:185,255,255,255),Color(mode==2?130:105,32,46,65));
+    Pen edge(&rim,stroke);g.DrawEllipse(&edge,x+inset,y+inset,diameter-2*inset,diameter-2*inset);
+    if(mode==2&&diameter>=6){Pen reflection(Color(170,255,255,255),.55f);reflection.SetStartCap(LineCapRound);reflection.SetEndCap(LineCapRound);g.DrawArc(&reflection,x+1,y+1,diameter-2,diameter-2,196.0f,52.0f);}
+    g.Restore(saved);
+}
 inline void Paint(Graphics& g,float x,float y,float w,float h,float radius,int mode,
                   float light=.35f,bool accent=false){
     if(w<=2||h<=2)return;

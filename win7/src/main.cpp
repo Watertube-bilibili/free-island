@@ -76,7 +76,7 @@ struct ButtonStyle{bool primary=false;int icon=-1;};
 struct App {
  std::unique_ptr<Engine> engine;HWND main=NULL,stage=NULL;HANDLE exitEvent=NULL;bool safe=false,ending=false,smoke=false;int page=0,selectedMinutes=10,scroll=0;std::vector<HWND> children;std::map<HWND,ButtonStyle> styles;std::vector<int64_t> laps;std::unique_ptr<Overlay> ball,menu,island,handle;HFONT font=NULL;HBRUSH whiteBrush=NULL;NOTIFYICONDATAW tray={};std::wstring feedback;uint64_t feedbackUntil=0;bool priorCount=false,priorStop=false;int64_t priorShutdown=0;std::string activity;Notice lastNotice;uint64_t islandUntil=0;bool islandUrgent=false;float contentX=28,contentY=238,contentW=1000,contentH=500;float baseW=1280,baseH=800;bool classroom=true;std::wstring drafts[3];std::wstring mainFrame,stageFrame,islandFrame;uint64_t mainPaints=0,childPaints=0;
  App(bool s,bool test):safe(s),smoke(test){snapshot=test;std::wstring path=s?ExeDir()+L"\\test-data":Folder(CSIDL_APPDATA)+L"\\FreeIslandWin7";engine.reset(new Engine(path,s));classroom=engine->settings.scene==Scene::Classroom;whiteBrush=CreateSolidBrush(RGB(255,255,255));}
- ~App();void Initialize(bool silent);void Layout();void Paint(Graphics&g);void PaintStage(Graphics&g,int w,int h);void Command(int id);void Tick();void Navigate(int p);void OpenMain(int p=0);void OpenStage();void OpenMenu();void CloseMenu();void ShowIsland(const std::string&kind);void ShowNotice(Notice n);void CollapseIsland();void PositionIsland();void DockIsland(POINT p);void ApplyScene();void Notify(const std::wstring&t){feedback=t;feedbackUntil=GetTickCount64()+5500;InvalidateRect(main,NULL,FALSE);}void Save(){engine->Save();}void Close();void SetStartup(bool on);bool StartupEnabled();void PositionBall(bool restore=false);void TuckBall();void RevealBall();void SnapBall();void PopupTray();void DrawButton(DRAWITEMSTRUCT*ds);HWND Button(int id,const wchar_t*t,float x,float y,float w,float h,bool primary=false,int icon=-1);HWND Edit(int id,const std::wstring&t,float x,float y,float w,float h,bool numeric=false);HWND Date(int id,float x,float y,float w,float h,bool time=false);HWND Child(int id){return GetDlgItem(main,id);}int64_t InputTime(int dateId,int timeId);std::wstring Value(int id);void Capture(const std::wstring&name,HWND win);void RunSmoke();void CheckPaintStability();
+ ~App();void Initialize(bool silent);void Layout();void Paint(Graphics&g);void PaintStage(Graphics&g,int w,int h);void Command(int id);void Tick();void Navigate(int p);void OpenMain(int p=0);void OpenStage();void OpenMenu();void CloseMenu();void ShowIsland(const std::string&kind);void ShowNotice(Notice n);void CollapseIsland();void PositionIsland();void DockIsland(POINT p);void ApplyScene();void Notify(const std::wstring&t){feedback=t;feedbackUntil=GetTickCount64()+5500;InvalidateRect(main,NULL,FALSE);}void Save(){engine->Save();}void Close();void SetStartup(bool on);bool StartupEnabled();void PositionBall(bool restore=false);void TuckBall();void RevealBall();void SnapBall();void PopupTray();void DrawButton(DRAWITEMSTRUCT*ds);HWND Button(int id,const wchar_t*t,float x,float y,float w,float h,bool primary=false,int icon=-1);HWND Edit(int id,const std::wstring&t,float x,float y,float w,float h,bool numeric=false);HWND Date(int id,float x,float y,float w,float h,bool time=false);HWND Child(int id){return GetDlgItem(main,id);}int64_t InputTime(int dateId,int timeId);std::wstring Value(int id);void Capture(const std::wstring&name,HWND win);void RunSmoke();void CheckDotMaterials();void CheckPaintStability();
 };
 App* app=NULL;
 LRESULT CALLBACK MainProc(HWND,UINT,WPARAM,LPARAM);LRESULT CALLBACK OverlayProc(HWND,UINT,WPARAM,LPARAM);LRESULT CALLBACK StageProc(HWND,UINT,WPARAM,LPARAM);
@@ -167,7 +167,7 @@ void App::Command(int id){try{
  if(id==300){SetStartup(!engine->settings.startup);Save();Layout();}if(id==301){engine->settings.sound=!engine->settings.sound;Save();Layout();}if(id==302){engine->settings.edgeHide=!engine->settings.edgeHide;Save();RevealBall();SnapBall();Layout();}if(id==303)PositionBall(true);if(id==304)ShowIsland("");
  if(id>=310&&id<=313){bool dot=id<=311;int input=dot?1005:1006;int current=dot?engine->settings.islandDotPercent:(int)std::lround(engine->settings.islandScale*100);try{current=std::stoi(Value(input));}catch(...){}current+=((id==310||id==312)?-1:1)*(dot?1:5);current=std::max(dot?0:75,std::min(dot?100:150,current));SetWindowTextW(Child(input),Number(current).c_str());}
  if(id==314||id==315){int dot=20,percent=100;if(id==314){auto read=[&](int input){std::wstring v=Value(input);if(v.empty()||v.find_first_not_of(L"0123456789")!=std::wstring::npos)throw std::runtime_error("size");return std::stoi(v);};try{dot=read(1005);percent=read(1006);}catch(...){Notify(L"请输入整数：黑点 0–100%，灵动岛 75–150%。");return;}if(dot<0||dot>100||percent<75||percent>150){Notify(L"黑点范围 0–100%，灵动岛范围 75–150%。");return;}}engine->settings.islandDotPercent=dot;engine->settings.islandScale=percent/100.0;Save();SetWindowTextW(Child(1005),Number(dot).c_str());SetWindowTextW(Child(1006),Number(percent).c_str());SyncDotControls(false);PositionIsland();if(island->Visible())island->Render();else handle->Render();Notify(L"大小已保存；默认黑点 20%，展开比例 100%。");}
- if(id>=320&&id<=322){engine->settings.glassMode=id-320;Save();for(int i=0;i<3;i++){HWND control=Child(320+i);if(control){styles[control].primary=i==engine->settings.glassMode;InvalidateRect(control,NULL,FALSE);}}for(Overlay*overlay:{ball.get(),menu.get(),island.get()})if(overlay){overlay->ResetMaterial();if(overlay->Visible())overlay->Render();}Notify(id==320?L"玻璃已关闭。":id==321?L"轻量：清透材质，无持续动画。":L"清透材质与柔和形变；Win7不提供桌面折射。");}
+ if(id>=320&&id<=322){engine->settings.glassMode=id-320;Save();for(int i=0;i<3;i++){HWND control=Child(320+i);if(control){styles[control].primary=i==engine->settings.glassMode;InvalidateRect(control,NULL,FALSE);}}for(Overlay*overlay:{ball.get(),menu.get(),island.get(),handle.get()})if(overlay){overlay->ResetMaterial();if(overlay->Visible())overlay->Render();}Notify(id==320?L"玻璃已关闭。":id==321?L"轻量：清透材质，无持续动画。":L"清透材质与柔和形变；Win7不提供桌面折射。");}
  }catch(const std::exception&){Notify(page==2?L"时长需大于零且不超过 7 天；分钟和秒请输入 0–59。":L"操作未完成，请检查输入或本地目录是否可写。");}Tick();}
 bool App::StartupEnabled(){HKEY key;std::wstring expected=L"\""+ExePath()+L"\" --silent";wchar_t val[32768]={};DWORD bytes=sizeof(val)-sizeof(wchar_t),type=0;if(RegOpenKeyExW(HKEY_CURRENT_USER,L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",0,KEY_QUERY_VALUE,&key)!=ERROR_SUCCESS)return false;LSTATUS r=RegQueryValueExW(key,L"FreeIslandWin7",NULL,&type,(BYTE*)val,&bytes);RegCloseKey(key);return r==ERROR_SUCCESS&&type==REG_SZ&&_wcsicmp(val,expected.c_str())==0;}
 void App::SetStartup(bool on){if(!safe){HKEY key;if(RegCreateKeyExW(HKEY_CURRENT_USER,L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",0,NULL,0,KEY_SET_VALUE,NULL,&key,NULL)!=ERROR_SUCCESS)throw std::runtime_error("startup");LSTATUS r;if(on){std::wstring v=L"\""+ExePath()+L"\" --silent";r=RegSetValueExW(key,L"FreeIslandWin7",0,REG_SZ,(BYTE*)v.c_str(),(DWORD)((v.size()+1)*2));}else r=RegDeleteValueW(key,L"FreeIslandWin7");RegCloseKey(key);if(r!=ERROR_SUCCESS&&r!=ERROR_FILE_NOT_FOUND)throw std::runtime_error("startup");}engine->settings.startup=on;}
@@ -183,7 +183,7 @@ void Overlay::Material(Graphics&g,float x,float y,float w,float h,float radius,i
  g.TranslateTransform(-cx,-cy);fiGlass::Paint(g,x,y,w,h,radius,app->engine->settings.glassMode,light,accent);g.Restore(state);
 }
 void Overlay::Draw(Graphics&g){
- if(kind==3){hits.clear();float diameter=(float)app->engine->settings.islandDotSize;bool top=app->engine->settings.dock==Dock::Top,left=app->engine->settings.dock==Dock::Left;float x=top?(width-diameter)/2.0f:(left?2.0f:width-diameter-2),y=top?2.0f:(height-diameter)/2.0f;SolidBrush dot(Color(255,0,0,0));g.FillEllipse(&dot,x,y,diameter,diameter);return;}
+ if(kind==3){hits.clear();int diameter=app->engine->settings.islandDotSize;bool top=app->engine->settings.dock==Dock::Top,left=app->engine->settings.dock==Dock::Left;int x=top?(width-diameter)/2:(left?2:width-diameter-2),y=top?2:(height-diameter)/2;fiGlass::PaintDot(g,(float)x,(float)y,(float)diameter,app->engine->settings.glassMode,squeeze);return;}
  float scale=(kind==2&&contentScale>0)?contentScale:dpi*(app->classroom?1.5f:1),w=width/scale,h=height/scale;
  g.ScaleTransform(scale,scale);hits.clear();int mode=app->engine->settings.glassMode;
  auto hit=[&](float x,float y,float ww,float hh,int id){hits.push_back({Rect((int)(x*scale),(int)(y*scale),(int)(ww*scale),(int)(hh*scale)),id});};
@@ -212,8 +212,8 @@ void Overlay::Draw(Graphics&g){
   else if(app->activity=="stopwatch"){title=L"正向计时  "+Format(app->engine->StopwatchMs(),true);detail=app->engine->stopwatchRunning?L"正在计时 · 点击查看":L"已暂停";icon=1;}
   else if(app->activity=="shutdown"&&app->engine->shutdownAt){title=L"关机倒计时  "+Format(app->engine->shutdownAt-NowMs(),true);detail=app->safe?L"安全预览 · 不会实际关机":L"请保存工作 · 随时可以取消";icon=4;}
   else{title=app->lastNotice.title.empty()?L"浮岛已就绪":app->lastNotice.title;detail=app->lastNotice.message.empty()?L"点击悬浮球选择功能 · 拖动调整位置":app->lastNotice.message;}
-  if(mode==0){Icon(g,icon,32,34,28);Text(g,title,74,22,w-202,32,16,INK,true);Text(g,detail,74,55,w-202,26,12,MUTED);}
-  else{GlassIcon(g,icon,32,34,28);GlassText(g,title,74,22,w-202,32,16);GlassText(g,detail,74,55,w-202,26,12);}
+  if(mode==0){Icon(g,icon,32,34,28);Text(g,title,78,20,w-220,30,17,INK,true);Text(g,detail,78,50,w-220,28,13,INK);}
+  else{GlassIcon(g,icon,32,34,28);Box(g,70,18,w-204,61,Color(215,249,251,254),10);Text(g,title,78,20,w-220,30,17,INK,true);Text(g,detail,78,50,w-220,28,13,INK);}
   Box(g,w-120,30,60,38,mode?Color(50,235,242,252):SELECTED,12);
   std::wstring action=app->activity=="shutdown"?L"取消":app->activity.empty()?L"知道了":L"查看";
   if(mode)GlassText(g,action,w-120,30,60,38,12,1);else Text(g,action,w-120,30,60,38,12,INK,false,1);
@@ -244,7 +244,7 @@ void Overlay::Tick(){
 }
 void Overlay::Press(POINT p){
  PointerLight(p);dockStart=0;down=true;dragged=false;start=lastPointer=p;RECT r=Bounds();origin={r.left,r.top};lastUse=GetTickCount64();
- if(kind!=3&&!tucked&&app->engine->settings.glassMode==2){pressedTarget=kind==1?-2:-1;if(kind==1){POINT local={p.x-r.left,p.y-r.top};for(auto target:hits)if(Contains(target.first,local)){pressedTarget=target.second;break;}}
+ if((kind!=3||app->engine->settings.islandDotSize>=6)&&!tucked&&app->engine->settings.glassMode==2){pressedTarget=kind==1?-2:-1;if(kind==1){POINT local={p.x-r.left,p.y-r.top};for(auto target:hits)if(Contains(target.first,local)){pressedTarget=target.second;break;}}
   if(pressedTarget!=-2){squeeze=1;stretch=0;released=0;materialDirty=true;}}
 }
 void Overlay::Move(POINT p){
@@ -310,6 +310,48 @@ void App::Tick(){
 void App::Close(){if(ending)return;ending=true;try{engine->Save();}catch(...){}KillTimer(main,1);UnregisterHotKey(main,8137);Shell_NotifyIconW(NIM_DELETE,&tray);ShowWindow(main,SW_HIDE);if(stage)DestroyWindow(stage);DestroyWindow(main);main=NULL;PostQuitMessage(0);}
 App::~App(){if(!ending)Close();if(exitEvent)CloseHandle(exitEvent);if(font)DeleteObject(font);if(whiteBrush)DeleteObject(whiteBrush);}
 void App::Capture(const std::wstring&name,HWND win){RECT r;GetClientRect(win,&r);int w=W(r),h=H(r);Bitmap bmp(w,h,PixelFormat32bppARGB);Graphics g(&bmp);if(win==main)Paint(g);else if(win==stage)PaintStage(g,w,h);else{Overlay*o=(Overlay*)GetWindowLongPtrW(win,GWLP_USERDATA);g.Clear(Color(0,0,0,0));o->opening=1;o->Draw(g);}if(win==main){HDC dc=g.GetHDC();for(HWND child:children){RECT cr;GetWindowRect(child,&cr);POINT pt={cr.left,cr.top};ScreenToClient(main,&pt);int saved=SaveDC(dc);SetViewportOrgEx(dc,pt.x,pt.y,NULL);SendMessageW(child,WM_PRINT,(WPARAM)dc,PRF_CLIENT|PRF_NONCLIENT|PRF_CHILDREN|PRF_ERASEBKGND);RestoreDC(dc,saved);}g.ReleaseHDC(dc);}UINT size=0,count=0;GetImageEncodersSize(&count,&size);std::vector<BYTE> memory(size);ImageCodecInfo*info=(ImageCodecInfo*)memory.data();GetImageEncoders(count,size,info);CLSID encoder={};for(UINT i=0;i<count;i++)if(wcscmp(info[i].MimeType,L"image/png")==0)encoder=info[i].Clsid;std::wstring dir=ExeDir()+L"\\smoke-artifacts";CreateDirectoryW(dir.c_str(),NULL);if(bmp.Save((dir+L"\\"+name+L".png").c_str(),&encoder,NULL)!=Ok)throw std::runtime_error("capture");}
+void App::CheckDotMaterials(){
+ if(!safe)throw std::runtime_error("Dot checks require safe mode");
+ int savedPercent=engine->settings.islandDotPercent,savedMode=engine->settings.glassMode;Dock savedDock=engine->settings.dock;
+ auto pump=[&](DWORD duration){uint64_t end=GetTickCount64()+duration;while(GetTickCount64()<end){MSG msg;while(PeekMessageW(&msg,NULL,0,0,PM_REMOVE)){if(msg.message==WM_QUIT)throw std::runtime_error("Unexpected UI exit");TranslateMessage(&msg);DispatchMessageW(&msg);}MsgWaitForMultipleObjectsEx(0,NULL,20,QS_ALLINPUT,MWMO_INPUTAVAILABLE);}};
+ const int percentages[]={0,20,100},diameters[]={3,6,20};
+ for(int size=0;size<3;size++){
+  engine->settings.islandDotPercent=percentages[size];Save();if(engine->settings.islandDotSize!=diameters[size])throw std::runtime_error("Dot diameter mapping changed");
+  for(int dock=0;dock<3;dock++){
+   engine->settings.dock=(Dock)dock;PositionIsland();HWND original=handle->hwnd;
+   int touch=D(classroom?44:24),diameter=diameters[size];if(handle->width!=touch||handle->height!=touch)throw std::runtime_error("Dot touch area changed with material");
+   int left=dock==0?(touch-diameter)/2:dock==1?2:touch-diameter-2,top=dock==0?2:(touch-diameter)/2;
+   uint64_t hashes[3]={};
+   for(int mode=0;mode<3;mode++){
+    uint64_t prior=handle->renderCount;Command(320+mode);
+    if(!handle->Visible()||handle->hwnd!=original||handle->renderCount<=prior)throw std::runtime_error("Visible dot did not update its material immediately");
+    Bitmap frame(touch,touch,PixelFormat32bppARGB);{Graphics g(&frame);Quality(g);g.Clear(Color(0,0,0,0));handle->Draw(g);}
+    BitmapData data={};Gdiplus::Rect area(0,0,touch,touch);if(frame.LockBits(&area,ImageLockModeRead,PixelFormat32bppARGB,&data)!=Ok)throw std::runtime_error("Cannot inspect dot pixels");
+    bool outside=false,colored=false,black=true;unsigned count=0,maxAlpha=0;float lightContrast=0,darkContrast=0;uint64_t hash=1469598103934665603ULL;
+    for(int y=0;y<touch;y++){const DWORD*row=(const DWORD*)((const BYTE*)data.Scan0+y*data.Stride);for(int x=0;x<touch;x++){
+     DWORD pixel=row[x];hash=(hash^pixel)*1099511628211ULL;unsigned alpha=pixel>>24;if(!alpha)continue;
+     if(x<left||x>=left+diameter||y<top||y>=top+diameter)outside=true;
+     ++count;maxAlpha=std::max(maxAlpha,alpha);unsigned rgb=pixel&0xffffff;colored|=rgb!=0;black&=rgb==0;
+     float luminance=((pixel>>16&255)*.2126f+(pixel>>8&255)*.7152f+(pixel&255)*.0722f),coverage=alpha/255.0f;
+     lightContrast=std::max(lightContrast,(255-luminance)*coverage);darkContrast=std::max(darkContrast,std::fabs(luminance-16)*coverage);
+    }}
+    frame.UnlockBits(&data);hashes[mode]=hash;
+    if(outside||count<3||maxAlpha<30)throw std::runtime_error("Dot escaped its physical size or became invisible");
+    if(mode==0&&(!black||maxAlpha!=255))throw std::runtime_error("Off mode must retain the black dot");
+    if(mode!=0&&(!colored||maxAlpha>=250||lightContrast<12||darkContrast<12))throw std::runtime_error("Glass dot lacks transparency or light/dark visibility");
+    if(dock==0){
+     Capture((classroom?L"classroom-":L"desktop-")+std::wstring(L"dot-")+Number(diameter)+L"-mode-"+Number(mode),handle->hwnd);
+     RECT bounds=handle->Bounds();POINT center={bounds.left+touch/2,bounds.top+touch/2};handle->Press(center);
+     bool shouldCompress=mode==2&&diameter>=6;if((handle->squeeze!=0)!=shouldCompress)throw std::runtime_error("Tiny dot interaction did not respect size/mode");
+     handle->FinishPress();pump(320);if(handle->released||handle->squeeze||handle->stretch||handle->dockStart)throw std::runtime_error("Dot material did not settle");
+     uint64_t idle=handle->renderCount;pump(240);if(handle->renderCount!=idle)throw std::runtime_error("Dot has an idle material repaint loop");
+    }
+   }
+   if(hashes[0]==hashes[1]||hashes[1]==hashes[2])throw std::runtime_error("Dot material modes render identically");
+  }
+ }
+ engine->settings.islandDotPercent=savedPercent;engine->settings.dock=savedDock;Save();Command(320+savedMode);PositionIsland();
+}
 void App::CheckPaintStability(){
  if(!safe)throw std::runtime_error("Paint checks require safe mode");
  auto pump=[&](DWORD duration){uint64_t end=GetTickCount64()+duration;while(GetTickCount64()<end){MSG msg;while(PeekMessageW(&msg,NULL,0,0,PM_REMOVE)){if(msg.message==WM_QUIT)throw std::runtime_error("Unexpected UI exit");TranslateMessage(&msg);DispatchMessageW(&msg);}MsgWaitForMultipleObjectsEx(0,NULL,25,QS_ALLINPUT,MWMO_INPUTAVAILABLE);}};
@@ -362,7 +404,7 @@ void App::RunSmoke(){try{
    if(!menu->Visible()||menu->hwnd!=before||menu->opening!=opening)throw std::runtime_error("material update recreated or hid popup");
    Capture(prefix+L"glass-"+Number(mode)+L"-radial",menu->hwnd);CloseMenu();CollapseIsland();
   }
-  Navigate(5);Command(321);OpenMenu();Capture(prefix+L"radial",menu->hwnd);CloseMenu();
+  Navigate(5);Command(321);OpenMenu();Capture(prefix+L"radial",menu->hwnd);CloseMenu();CheckDotMaterials();
  }
  Navigate(5);SetWindowTextW(Child(1005),L"100");SetWindowTextW(Child(1006),L"150");
  if(SendMessageW(Child(1007),TBM_GETPOS,0,0)!=100)throw std::runtime_error("percentage edit/slider sync");
@@ -383,7 +425,7 @@ void App::RunSmoke(){try{
  if(handle->dockStart)throw std::runtime_error("black dot must not animate");
  for(int e=1;e<=4;e++){RevealBall();ball->edge=e;TuckBall();if(!ball->tucked)throw std::runtime_error("ball edge");}RevealBall();engine->CancelCountdown();engine->settings.dock=Dock::Top;Save();CheckPaintStability();
  std::wstring out=ExeDir()+L"\\smoke-artifacts\\result.txt";HANDLE f=CreateFileW(out.c_str(),GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
- const char*pass="PASS: 12 native control pages; three glass modes on ball, six independent radial choices and island in both scenes.\r\nPASS: percentage slider/edit draft sync, 100 percent = 20 px, invalid 101 rejected, reset 20 percent = 6 px, expanded scale reset 100 percent.\r\nPASS: material updates preserve visible windows; black dot does not animate; stopwatch, countdown, reminder, safe shutdown/cancel, three docks and four edge handles.\r\nNo .NET, registry changes, desktop capture or actual shutdown executed.\r\n";
+ const char*pass="PASS: 12 native control pages; three glass modes on ball, six independent radial choices and island in both scenes.\r\nPASS: percentage slider/edit draft sync, 100 percent = 20 px, invalid 101 rejected, reset 20 percent = 6 px, expanded scale reset 100 percent.\r\nPASS: material updates preserve visible windows; 3/6/20px dots keep bounds and touch areas across all three modes/docks, remain visible on light/dark backgrounds, update immediately and never repaint while idle; stopwatch, countdown, reminder, safe shutdown/cancel, three docks and four edge handles.\r\nNo .NET, registry changes, desktop capture or actual shutdown executed.\r\n";
  DWORD written;WriteFile(f,pass,(DWORD)strlen(pass),&written,NULL);CloseHandle(f);Close();
  }catch(const std::exception&e){std::wstring out=ExeDir()+L"\\smoke-error.txt";HANDLE f=CreateFileW(out.c_str(),GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);DWORD written;WriteFile(f,e.what(),(DWORD)strlen(e.what()),&written,NULL);CloseHandle(f);Close();PostQuitMessage(2);}}
 

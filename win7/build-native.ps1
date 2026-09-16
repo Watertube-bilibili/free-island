@@ -27,8 +27,8 @@ foreach ($directory in @($buildDirectory, $outputDirectory, $portableDirectory))
 }
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $appExecutable = Join-Path $portableDirectory 'FreeIslandWin7.exe'
-$setupExecutable = Join-Path $outputDirectory 'FreeIsland-Win7-Setup-1.0.3.exe'
-$zipPath = Join-Path $outputDirectory 'FreeIsland-Win7-Portable-1.0.3.zip'
+$setupExecutable = Join-Path $outputDirectory 'FreeIsland-Win7-Setup-1.0.4.exe'
+$zipPath = Join-Path $outputDirectory 'FreeIsland-Win7-Portable-1.0.4.zip'
 $runtimeLicense = Join-Path (Split-Path -Parent $CompilerDirectory) 'COPYING.MinGW-w64-runtime.txt'
 if (-not (Test-Path -LiteralPath $runtimeLicense)) { throw '编译器缺少 COPYING.MinGW-w64-runtime.txt。' }
 
@@ -118,8 +118,8 @@ try {
 202 RCDATA "payload.sha256"
 203 RCDATA "COPYING.MinGW-w64-runtime.txt"
 1 VERSIONINFO
- FILEVERSION 1,0,3,0
- PRODUCTVERSION 1,0,3,0
+ FILEVERSION 1,0,4,0
+ PRODUCTVERSION 1,0,4,0
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS 0
  FILEOS VOS_NT_WINDOWS32
@@ -131,10 +131,10 @@ BEGIN
   BEGIN
    VALUE "CompanyName", "Free Island\0"
    VALUE "FileDescription", "浮岛 · Windows 7 原生安装程序\0"
-   VALUE "FileVersion", "1.0.3\0"
-   VALUE "OriginalFilename", "FreeIsland-Win7-Setup-1.0.3.exe\0"
+   VALUE "FileVersion", "1.0.4\0"
+   VALUE "OriginalFilename", "FreeIsland-Win7-Setup-1.0.4.exe\0"
    VALUE "ProductName", "浮岛\0"
-   VALUE "ProductVersion", "1.0.3\0"
+   VALUE "ProductVersion", "1.0.4\0"
   END
  END
  BLOCK "VarFileInfo"
@@ -161,7 +161,21 @@ END
     Copy-Item -LiteralPath $runtimeLicense -Destination (Join-Path $portableDirectory 'COPYING.MinGW-w64-runtime.txt') -Force
     Copy-Item -LiteralPath (Join-Path $projectRoot 'win7\README.md') -Destination (Join-Path $portableDirectory 'README.md') -Force
     $archiveFiles = @('FreeIslandWin7.exe', 'COPYING.MinGW-w64-runtime.txt', 'README.md') | ForEach-Object { Join-Path $portableDirectory $_ }
-    Compress-Archive -LiteralPath $archiveFiles -DestinationPath $zipPath -CompressionLevel Optimal -Force
+    # Read every required file before creating the archive. Compress-Archive can
+    # omit a temporarily unreadable EXE and leave a deceptively valid small ZIP.
+    $archiveContents = @($archiveFiles | ForEach-Object { ,([System.IO.File]::ReadAllBytes($_)) })
+    Add-Type -AssemblyName System.IO.Compression
+    $archiveStream = [System.IO.File]::Open($zipPath, [System.IO.FileMode]::Create)
+    $archive = New-Object System.IO.Compression.ZipArchive($archiveStream, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        for ($fileIndex = 0; $fileIndex -lt $archiveFiles.Count; $fileIndex++) {
+            $entry = $archive.CreateEntry([System.IO.Path]::GetFileName($archiveFiles[$fileIndex]), [System.IO.Compression.CompressionLevel]::Optimal)
+            $entryStream = $entry.Open()
+            try { $entryStream.Write($archiveContents[$fileIndex], 0, $archiveContents[$fileIndex].Length) }
+            finally { $entryStream.Dispose() }
+        }
+    }
+    finally { $archive.Dispose(); $archiveStream.Dispose() }
     $releaseHashes = @($appExecutable, $setupExecutable, $zipPath) | ForEach-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + [System.IO.Path]::GetFileName($_) }
     [System.IO.File]::WriteAllLines((Join-Path $outputDirectory 'SHA256SUMS-Win7.txt'), $releaseHashes, $utf8)
     Write-Host "构建完成：$setupExecutable"

@@ -19,10 +19,12 @@ namespace FreeIsland
         public static readonly DependencyProperty OrbProperty = DependencyProperty.Register("Orb", typeof(bool), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
         public static readonly DependencyProperty RadiusProperty = DependencyProperty.Register("Radius", typeof(double), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(12.0, FrameworkPropertyMetadataOptions.AffectsRender));
         public static readonly DependencyProperty PressedProperty = DependencyProperty.Register("Pressed", typeof(bool), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender, Changed));
+        public static readonly DependencyProperty CompactProperty = DependencyProperty.Register("Compact", typeof(bool), typeof(LiquidGlassSurface), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
         public int Mode { get { return (int)GetValue(ModeProperty); } set { SetValue(ModeProperty, value); } }
         public bool Orb { get { return (bool)GetValue(OrbProperty); } set { SetValue(OrbProperty, value); } }
         public double Radius { get { return (double)GetValue(RadiusProperty); } set { SetValue(RadiusProperty, value); } }
         public bool Pressed { get { return (bool)GetValue(PressedProperty); } set { SetValue(PressedProperty, value); } }
+        public bool Compact { get { return (bool)GetValue(CompactProperty); } set { SetValue(CompactProperty, value); } }
         private readonly DispatcherTimer timer;
         private readonly WaterSpring pressure = new WaterSpring(), pullX = new WaterSpring(), pullY = new WaterSpring();
         private Window captureWindow;
@@ -39,6 +41,7 @@ namespace FreeIsland
         internal static Func<Rect, BackdropFrame> PreviewBackdrop = null;
         internal bool HasRefraction { get { return image != null && backdrop != null; } }
         internal bool IsUpdating { get { return timer.IsEnabled; } }
+        internal void RefreshInk() { if (InkHost != null) LiquidGlass.Ink(InkHost, Mode, lightInk && Capture); }
         private bool Motion { get { return Mode == 2 && SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast && !SurfaceStyle.SnapshotMode; } }
         private bool Capture { get { return Mode == 2 && !SystemParameters.HighContrast && (!SurfaceStyle.SnapshotMode || PreviewBackdrop != null); } }
 
@@ -160,17 +163,17 @@ namespace FreeIsland
         }
         private void RenderLens()
         {
-            if (backdrop == null || ActualWidth < 2 || ActualHeight < 2) return;
+            if (backdrop == null || ActualWidth <= 0 || ActualHeight <= 0 || !Compact && (ActualWidth < 2 || ActualHeight < 2)) return;
             // Logical-resolution optics keeps large touch displays inexpensive. WPF
             // scales this material; the labels remain native vector text at full DPI.
-            double scale = Math.Min(1.5, Math.Min(640 / ActualWidth, 180 / ActualHeight));
+            double scale = Compact ? Math.Max(4, 16 / Math.Min(ActualWidth, ActualHeight)) : Math.Min(1.5, Math.Min(640 / ActualWidth, 180 / ActualHeight));
             int w = Math.Max(2, (int)Math.Ceiling(ActualWidth * scale)), h = Math.Max(2, (int)Math.Ceiling(ActualHeight * scale));
             if (lens == null || lens.Width != w || lens.Height != h)
             {
                 lens = new WaterLens(w, h); image = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
             }
             if (image == null) image = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
-            lens.Shape((Orb ? Math.Min(ActualWidth, ActualHeight) / 2 : Radius) * scale, pressure.Value, pullX.Value, pullY.Value);
+            lens.Shape((Orb ? Math.Min(ActualWidth, ActualHeight) / 2 : Radius) * scale, pressure.Value, pullX.Value, pullY.Value, Compact);
             lens.Refract(backdrop.Pixels, backdrop.Width, backdrop.Height, backdrop.Stride,
                 screenBounds.Left - backdrop.ScreenBounds.Left, screenBounds.Top - backdrop.ScreenBounds.Top, screenBounds.Width / w, screenBounds.Height / h);
             image.WritePixels(new Int32Rect(0, 0, w, h), lens.Pixels, w * 4, 0);
@@ -186,6 +189,7 @@ namespace FreeIsland
         {
             base.OnRender(drawing);
             double w = ActualWidth, h = ActualHeight;
+            if (Compact) { RenderCompact(drawing, w, h); return; }
             if (w < 2 || h < 2) return;
             if (Mode == 2 && image != null && backdrop != null && !SystemParameters.HighContrast)
             { drawing.DrawImage(image, new Rect(0, 0, w, h)); return; }
@@ -206,10 +210,32 @@ namespace FreeIsland
             if (bounds.Width > 0 && bounds.Height > 0) drawing.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb(65, 255, 255, 255)), .65), bounds, Math.Max(0, radius - 1.7), Math.Max(0, radius - 1.7));
             drawing.Pop();
         }
+
+        private void RenderCompact(DrawingContext drawing, double w, double h)
+        {
+            if (w <= 0 || h <= 0) return;
+            // Supersampled optics and a single fine rim keep a 3 px drop visible.
+            // All paint stays within the user's diameter, not the larger hit area.
+            drawing.PushClip(new RectangleGeometry(new Rect(0, 0, w, h)));
+            if (Mode == 0 || SystemParameters.HighContrast)
+                drawing.DrawEllipse(SystemParameters.HighContrast ? SystemColors.WindowTextBrush : Brushes.Black, null, new Point(w / 2, h / 2), w / 2, h / 2);
+            else
+            {
+                bool refracted = Mode == 2 && image != null && backdrop != null;
+                if (refracted) drawing.DrawImage(image, new Rect(0, 0, w, h));
+                double stroke = Math.Min(.65, Math.Min(w, h) * .14);
+                double sx = 1 + pressure.Value * .025, sy = 1 - pressure.Value * .037;
+                double rx = Math.Max(0, (w - stroke) * .5 * sx), ry = Math.Max(0, (h - stroke) * .5 * sy);
+                var edge = new LinearGradientBrush(Color.FromArgb(240, 255, 255, 255), Color.FromArgb(195, 23, 34, 45), new Point(.1, 0), new Point(.85, 1));
+                drawing.DrawEllipse(refracted ? null : new SolidColorBrush(Color.FromArgb(38, 238, 245, 250)), new Pen(edge, stroke), new Point(w / 2, h / 2), rx, ry);
+            }
+            drawing.Pop();
+        }
     }
 
     internal static class LiquidGlass
     {
+        internal static readonly DependencyProperty ReadablePanelProperty = DependencyProperty.RegisterAttached("ReadablePanel", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
         private static readonly DependencyProperty PointerWiredProperty = DependencyProperty.RegisterAttached("PointerWired", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
         private static readonly DependencyProperty OriginalInkProperty = DependencyProperty.RegisterAttached("OriginalInk", typeof(Brush), typeof(LiquidGlass));
         private static readonly Dictionary<Window, HashSet<LiquidGlassSurface>> Windows = new Dictionary<Window, HashSet<LiquidGlassSurface>>();
@@ -229,9 +255,18 @@ namespace FreeIsland
         }
         internal static bool IsWaterButton(Button button) { return (bool)button.GetValue(PointerWiredProperty); }
         internal static void Ink(DependencyObject host, int mode, bool light)
+        { InkCore(host, mode, light, false); }
+        private static void InkCore(DependencyObject host, int mode, bool light, bool readable)
         {
             // Local counter-colour halos protect labels on mixed slides without
             // inserting an opaque card inside the water surface.
+            var panel = host as Border;
+            if (panel != null && (bool)panel.GetValue(ReadablePanelProperty))
+            {
+                readable = true;
+                panel.Background = mode == 0 ? Brushes.Transparent : SystemParameters.HighContrast ? SystemColors.WindowBrush :
+                    new SolidColorBrush(light ? Color.FromArgb(205, 15, 22, 31) : Color.FromArgb(228, 248, 250, 252));
+            }
             var text = host as TextBlock; var shape = host as Shape;
             if (text != null || shape != null && !(shape is Rectangle))
             {
@@ -239,13 +274,13 @@ namespace FreeIsland
                 var original = host.GetValue(OriginalInkProperty) as Brush;
                 if (original == null) { original = host.GetValue(property) as Brush; if (original != null) host.SetValue(OriginalInkProperty, original); }
                 host.SetValue(property, SystemParameters.HighContrast ? SystemColors.WindowTextBrush : mode == 0 ? original : light ? Brushes.White : SurfaceStyle.Brush("#132133"));
-                if (text != null) text.Background = mode == 1 && !SystemParameters.HighContrast ? new SolidColorBrush(Color.FromArgb(218, 246, 249, 251)) : Brushes.Transparent;
+                if (text != null) text.Background = !readable && mode == 1 && !SystemParameters.HighContrast ? new SolidColorBrush(Color.FromArgb(218, 246, 249, 251)) : Brushes.Transparent;
                 var element = (UIElement)host;
-                element.Effect = mode == 0 || SystemParameters.HighContrast ? null : new DropShadowEffect { Color = light ? Colors.Black : Colors.White, BlurRadius = mode == 1 ? 1 : 3, ShadowDepth = 0, Opacity = 1 };
+                element.Effect = readable || mode == 0 || SystemParameters.HighContrast ? null : new DropShadowEffect { Color = light ? Colors.Black : Colors.White, BlurRadius = mode == 1 ? 1 : 3, ShadowDepth = 0, Opacity = 1 };
             }
             // Solid nested action buttons retain their own high-contrast surface.
             if (host is Button && !IsWaterButton((Button)host)) return;
-            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(host); i++) Ink(VisualTreeHelper.GetChild(host, i), mode, light);
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(host); i++) InkCore(VisualTreeHelper.GetChild(host, i), mode, light, readable);
         }
         public static Grid Orb(double size, int mode)
         {

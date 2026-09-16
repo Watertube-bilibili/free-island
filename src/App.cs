@@ -235,7 +235,7 @@ namespace FreeIsland
             if (lastGlassMode != engine.Settings.GlassMode)
             {
                 lastGlassMode = engine.Settings.GlassMode;
-                ball.ApplyMaterial(); radial.ApplyMaterial(); island.ApplyMaterial();
+                ball.ApplyMaterial(); radial.ApplyMaterial(); island.ApplyMaterial(); islandHandle.ApplyMaterial();
             }
             if (lastIslandDotSize != engine.Settings.IslandDotSize || lastIslandScale != engine.Settings.IslandScale)
             {

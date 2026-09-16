@@ -366,11 +366,15 @@ namespace FreeIsland
             SurfaceStyle.Setup(this, "浮岛 · 灵动岛"); Width = 420; Height = 98;
             card = new Border { Margin = new Thickness(10), Background = Brushes.Transparent, CornerRadius = new CornerRadius(32) };
             var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) }); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            symbol = new ContentControl { VerticalAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center }; grid.Children.Add(symbol); SetIcon("countdown");
-            var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 10, 0) }; Grid.SetColumn(words, 1);
-            title = SurfaceStyle.Text("浮岛", 16, "#18243A"); title.TextAlignment = TextAlignment.Left; title.FontWeight = FontWeights.SemiBold; title.TextTrimming = TextTrimming.CharacterEllipsis;
-            detail = SurfaceStyle.Text("点击查看 · 拖动调整位置", 12, "#58657A"); detail.TextAlignment = TextAlignment.Left; detail.TextTrimming = TextTrimming.CharacterEllipsis; detail.Margin = new Thickness(0, 5, 0, 0);
-            words.Children.Add(title); words.Children.Add(detail); grid.Children.Add(words);
+            symbol = new ContentControl { VerticalAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center };
+            var symbolBacking = new Border { Child = symbol, Padding = new Thickness(4), CornerRadius = new CornerRadius(12), VerticalAlignment = VerticalAlignment.Center };
+            symbolBacking.SetValue(LiquidGlass.ReadablePanelProperty, true); grid.Children.Add(symbolBacking); SetIcon("countdown");
+            var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var readablePanel = new Border { Name = "IslandTextBacking", Child = words, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 7, 0), Padding = new Thickness(8, 5, 8, 5), CornerRadius = new CornerRadius(10) };
+            readablePanel.SetValue(LiquidGlass.ReadablePanelProperty, true); Grid.SetColumn(readablePanel, 1);
+            title = SurfaceStyle.Text("浮岛", 17, "#18243A"); title.TextAlignment = TextAlignment.Left; title.FontWeight = FontWeights.SemiBold; title.TextTrimming = TextTrimming.CharacterEllipsis;
+            detail = SurfaceStyle.Text("点击查看 · 拖动调整位置", 13, "#3D4A60"); detail.TextAlignment = TextAlignment.Left; detail.FontWeight = FontWeights.Medium; detail.TextTrimming = TextTrimming.CharacterEllipsis; detail.Margin = new Thickness(0, 3, 0, 0);
+            words.Children.Add(title); words.Children.Add(detail); grid.Children.Add(readablePanel);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(actions, 2);
             action = SurfaceStyle.Button("查看", Act, "#EEF1FF"); actions.Children.Add(action);
             var close = SurfaceStyle.Button("", delegate { urgent = false; Collapse(); }, "#F2F4F9"); close.Content = AppVisual.Icon("close", 15, SurfaceStyle.Brush("#596783")); close.Width = 34; close.Margin = new Thickness(5, 0, 0, 0); close.ToolTip = "收起为小黑点，任务继续运行"; actions.Children.Add(close); grid.Children.Add(actions);
@@ -427,7 +431,13 @@ namespace FreeIsland
             Reposition();
         }
         public void ApplyMaterial() { if (materialMode == engine.Settings.GlassMode) return; materialMode = engine.Settings.GlassMode; material.Mode = materialMode; if (materialMode != 0) card.RenderTransform = Transform.Identity; card.Effect = materialMode == 2 ? new DropShadowEffect { BlurRadius = 15, Opacity = .14, ShadowDepth = 4, Color = Color.FromRgb(35, 51, 83) } : null; }
-        private void SetIcon(string name) { if (iconName == name) return; iconName = name; symbol.Content = AppVisual.Icon(name, 28, SurfaceStyle.Brush("#4F66E8")); }
+        private void SetIcon(string name)
+        {
+            if (iconName == name) return; iconName = name;
+            var icon = AppVisual.Icon(name, 28, SurfaceStyle.Brush("#4F66E8"));
+            icon.Loaded += delegate { if (material != null) material.RefreshInk(); };
+            symbol.Content = icon;
+        }
         private static bool IsButtonSource(DependencyObject source)
         {
             while (source != null) { if (source is Button) return true; source = VisualTreeHelper.GetParent(source); }

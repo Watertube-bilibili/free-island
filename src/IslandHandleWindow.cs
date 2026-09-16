@@ -13,6 +13,7 @@ namespace FreeIsland
     {
         private readonly CoreEngine engine;
         private readonly Ellipse dot;
+        private readonly LiquidGlassSurface material;
         private bool pointerDown;
         private bool dragged;
         private Point pressCursor;
@@ -31,8 +32,10 @@ namespace FreeIsland
                 UseLayoutRounding = false,
                 SnapsToDevicePixels = true
             };
+            material = new LiquidGlassSurface { Name = "IslandHandleGlassMaterial", Orb = true, Compact = true, IsHitTestVisible = false };
             // A nonzero alpha keeps the larger target clickable in a layered window.
-            var touchArea = new Canvas { Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)), Cursor = Cursors.Hand, ToolTip = "点击展开 · 拖动调整位置" }; touchArea.Children.Add(dot); Content = touchArea;
+            var touchArea = new Canvas { Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)), Cursor = Cursors.Hand, ToolTip = "点击展开 · 拖动调整位置" }; touchArea.Children.Add(dot); touchArea.Children.Add(material); Content = touchArea;
+            ApplyMaterial();
             System.Windows.Automation.AutomationProperties.SetName(touchArea, "点击展开灵动岛，拖动调整位置");
             MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
             {
@@ -42,6 +45,7 @@ namespace FreeIsland
                 pressOrigin = new Point(Left, Top);
                 dragged = false;
                 pointerDown = CaptureMouse();
+                material.Pressed = pointerDown;
             };
             MouseMove += delegate(object sender, MouseEventArgs e)
             {
@@ -49,6 +53,7 @@ namespace FreeIsland
                 if (e.LeftButton != MouseButtonState.Pressed)
                 {
                     pointerDown = false;
+                    EndMaterialPress();
                     ReleaseMouseCapture();
                     return;
                 }
@@ -64,6 +69,7 @@ namespace FreeIsland
                 if (!pointerDown) return;
                 e.Handled = true;
                 pointerDown = false;
+                EndMaterialPress();
                 ReleaseMouseCapture();
                 if (dragged)
                 {
@@ -71,18 +77,29 @@ namespace FreeIsland
                 }
                 else if (wake != null) wake();
             };
-            LostMouseCapture += delegate { pointerDown = false; };
+            LostMouseCapture += delegate { pointerDown = false; EndMaterialPress(); };
+            IsVisibleChanged += delegate { if (!IsVisible) EndMaterialPress(); };
             TouchWindowDrag.Attach(this, null,
-                delegate { SurfaceStyle.StopPosition(this); pointerDown = true; },
+                delegate { SurfaceStyle.StopPosition(this); pointerDown = true; material.Pressed = true; },
                 delegate { if (wake != null) wake(); },
-                delegate(Point point) { pointerDown = false; if (dropped != null) dropped(point); },
-                delegate { pointerDown = false; });
+                delegate(Point point) { pointerDown = false; EndMaterialPress(); if (dropped != null) dropped(point); },
+                delegate { pointerDown = false; EndMaterialPress(); });
             SourceInitialized += delegate
             {
                 var source = PresentationSource.FromVisual(this) as HwndSource;
                 if (source != null) source.AddHook(PreventActivation);
                 UpdateDot();
             };
+        }
+
+        private void EndMaterialPress() { material.Pressed = false; material.Pointer(null); }
+
+        public void ApplyMaterial()
+        {
+            int mode = Math.Max(0, Math.Min(2, engine.Settings.GlassMode));
+            material.Mode = mode;
+            material.Visibility = mode == 0 ? Visibility.Collapsed : Visibility.Visible;
+            dot.Visibility = mode == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
         public void ShowAt(Rect work)
@@ -114,10 +131,13 @@ namespace FreeIsland
             double dpiY = pixels.M22 > 0 ? pixels.M22 : 1;
             int size = Math.Max(3, Math.Min(20, engine.Settings.IslandDotSize));
             dot.Width = size / dpiX; dot.Height = size / dpiY;
+            material.Width = dot.Width; material.Height = dot.Height;
             IslandPlacement placement = engine.Settings.Placement;
             double x = placement == IslandPlacement.Left ? 1 : placement == IslandPlacement.Right ? Width * dpiX - size - 1 : (Width * dpiX - size) / 2;
             double y = placement == IslandPlacement.Top ? 1 : (Height * dpiY - size) / 2;
             Canvas.SetLeft(dot, Math.Round(x) / dpiX); Canvas.SetTop(dot, Math.Round(y) / dpiY);
+            Canvas.SetLeft(material, Canvas.GetLeft(dot)); Canvas.SetTop(material, Canvas.GetTop(dot));
+            ApplyMaterial();
         }
 
         private static IntPtr PreventActivation(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)

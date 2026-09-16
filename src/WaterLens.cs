@@ -11,6 +11,7 @@ namespace FreeIsland
         private readonly float[] sampleX, sampleY, light;
         private readonly byte[] coverage;
         private double previousRadius = -1, previousPressure, previousX, previousY;
+        private bool previousCompact;
         internal double MeanBrightness { get; private set; }
 
         internal WaterLens(int width, int height)
@@ -22,18 +23,19 @@ namespace FreeIsland
             light = new float[count]; coverage = new byte[count];
         }
 
-        internal void Shape(double radius, double pressure, double pullX, double pullY)
+        internal void Shape(double radius, double pressure, double pullX, double pullY, bool compact = false)
         {
             if (!Finite(radius) || !Finite(pressure) || !Finite(pullX) || !Finite(pullY)) throw new ArgumentException("Non-finite lens shape.");
             radius = Math.Max(2, Math.Min(radius, Math.Min(Width, Height) * .5));
             pressure = Clamp(pressure, -.25, 1.1); pullX = Clamp(pullX, -1, 1); pullY = Clamp(pullY, -1, 1);
-            if (Math.Abs(radius - previousRadius) < .01 && Math.Abs(pressure - previousPressure) < .003 &&
+            if (compact == previousCompact && Math.Abs(radius - previousRadius) < .01 && Math.Abs(pressure - previousPressure) < .003 &&
                 Math.Abs(pullX - previousX) < .005 && Math.Abs(pullY - previousY) < .005) return;
             previousRadius = radius; previousPressure = pressure; previousX = pullX; previousY = pullY;
+            previousCompact = compact;
             double halfW = Width * .5, halfH = Height * .5;
             double sx = 1 + pressure * .025 + Math.Abs(pullX) * .025 - Math.Abs(pullY) * .009;
             double sy = 1 - pressure * .037 + Math.Abs(pullY) * .025 - Math.Abs(pullX) * .009;
-            double inset = Math.Max(2, Math.Min(Width, Height) * .045);
+            double inset = compact ? .5 : Math.Max(2, Math.Min(Width, Height) * .045);
             double edgeWidth = Math.Max(4, Math.Min(16, Math.Min(Width, Height) * .20));
             double strength = edgeWidth * .68 * (1 - pressure * .15);
             double r = Math.Min(radius, Math.Min(halfW - inset, halfH - inset));

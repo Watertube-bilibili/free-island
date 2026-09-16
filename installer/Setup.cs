@@ -118,8 +118,8 @@ namespace FreeIsland.Installation
             using (RegistryKey framework = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"))
             {
                 object release = framework == null ? null : framework.GetValue("Release");
-                if (release == null || Convert.ToInt32(release) < 528040)
-                    throw new InvalidOperationException("浮岛需要 .NET Framework 4.8。请先安装该运行环境，然后重试。");
+                if (release == null || Convert.ToInt32(release) < 393295)
+                    throw new InvalidOperationException("浮岛需要 .NET Framework 4.6 或更新版本。Windows 10 已自带；若系统组件缺失，请先修复运行环境后重试。");
             }
             using (Common.HoldAppInstance())
             {

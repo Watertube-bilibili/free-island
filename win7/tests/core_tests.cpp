@@ -247,6 +247,45 @@ void DotPercentAndGlassMigration() {
     }
 }
 
+void GlassAppearancePersistence() {
+    Clock time;
+    const std::wstring path = Directory();
+    SettingsFixture(path, "scene=0\nstartup=0\nglassMode=2\nislandDotPercent=20\n");
+    {
+        fi::Engine e(path, true, time.Wall(), time.Mono(), time.Shutdown());
+        Check(e.settings.glassRefraction == 50 && e.settings.glassTransparency == 65 && e.settings.glassHighlight == 55,
+              "Legacy settings receive recommended material values.");
+        Check(e.settings.glassMode == 2 && e.settings.scene == fi::Scene::Desktop && !e.settings.startup &&
+              e.settings.islandDotSize == 6 && e.TakeNotices().empty(), "Migration preserves scene, mode and dot size.");
+        const int values[][3] = {{0,100,0},{100,0,100},{37,81,24}};
+        for (const auto& value : values) {
+            e.settings.glassRefraction=value[0];e.settings.glassTransparency=value[1];e.settings.glassHighlight=value[2];e.Save();
+            fi::Engine restored(path, true, time.Wall(), time.Mono(), time.Shutdown());
+            Check(restored.settings.glassRefraction==value[0] && restored.settings.glassTransparency==value[1] &&
+                  restored.settings.glassHighlight==value[2], "Independent material values and endpoints survive restart.");
+            Check(restored.settings.glassMode==2 && restored.settings.islandDotSize==6, "Appearance edits leave mode and hit-size preference intact.");
+        }
+        const int invalid[] = {-1,101,std::numeric_limits<int>::min(),std::numeric_limits<int>::max()};
+        for(int value : invalid) {
+            e.settings.glassRefraction=value;e.settings.glassTransparency=value;e.settings.glassHighlight=value;e.Save();
+            Check(e.settings.glassRefraction==50 && e.settings.glassTransparency==65 && e.settings.glassHighlight==55,
+                  "Out-of-range in-memory material values return to recommendations.");
+        }
+    }
+    const char* invalid[] = {"-1","101","1.5","nan","invalid","9999999999999999999999"};
+    for(const char* value : invalid) {
+        SettingsFixture(path,std::string("scene=0\nglassMode=2\nglassRefraction=")+value+"\nglassTransparency=71\nglassHighlight=29\n");
+        fi::Engine e(path,true,time.Wall(),time.Mono(),time.Shutdown());
+        Check(e.settings.glassRefraction==50 && e.settings.glassTransparency==71 && e.settings.glassHighlight==29 &&
+              e.settings.scene==fi::Scene::Desktop && e.settings.glassMode==2 && e.TakeNotices().empty(),
+              "Malformed material input normalizes independently without losing unrelated preferences.");
+        SettingsFixture(path,std::string("glassRefraction=31\nglassTransparency=")+value+"\nglassHighlight="+value+"\n");
+        fi::Engine restored(path,true,time.Wall(),time.Mono(),time.Shutdown());
+        Check(restored.settings.glassRefraction==31 && restored.settings.glassTransparency==65 && restored.settings.glassHighlight==55,
+              "Malformed transparency and highlight safely use recommendations.");
+    }
+}
+
 void Validation() {
     Clock time;
     fi::Engine e(Directory(), true, time.Wall(), time.Mono(), time.Shutdown());
@@ -519,6 +558,7 @@ int main() {
         Run("scene, docking and numeric validation", SettingsValidation);
         Run("island dot and scale persistence, bounds and legacy compatibility", IslandSizingSettings);
         Run("dot percentage and glass modes, migration and normalization", DotPercentAndGlassMigration);
+        Run("glass appearance persistence, legacy defaults and independent validation", GlassAppearancePersistence);
         Run("duration and future-date validation", Validation);
         Run("monotonic stopwatch pause, resume, reset and clock corrections", StopwatchMonotonic);
         Run("countdown pause and restart", CountdownPauseRestore);

@@ -70,14 +70,14 @@ $installerReferences = @('/reference:System.dll', '/reference:System.Core.dll', 
 $uninstallExecutable = Join-Path $portableDirectory 'FreeIsland.Uninstall.exe'
 Write-Host '正在编译每用户卸载器…'
 Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:winexe', '/platform:anycpu', '/optimize+', "/out:$uninstallExecutable", "/win32icon:$iconPath", "/win32manifest:$manifest") + $installerReferences + @($commonSource, $installerAssembly, (Join-Path $installerDirectory 'Uninstall.cs')))
-$recoveryUninstaller = Join-Path $outputRoot 'FreeIsland-Uninstall-1.0.3.exe'
+$recoveryUninstaller = Join-Path $outputRoot 'FreeIsland-Uninstall-1.0.4.exe'
 Copy-Item -LiteralPath $uninstallExecutable -Destination $recoveryUninstaller -Force
 
 $payloadNames = @('FreeIsland.exe', 'FreeIsland.exe.config', 'FreeIsland.ico', 'FreeIsland.Uninstall.exe')
 $payloadManifestPath = Join-Path $buildDirectory 'payload.sha256'
 $payloadHashes = @($payloadNames | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $portableDirectory $_) -Algorithm SHA256).Hash + '  ' + $_ })
 [System.IO.File]::WriteAllLines($payloadManifestPath, $payloadHashes, (New-Object System.Text.UTF8Encoding($false)))
-$setupExecutable = Join-Path $outputRoot 'FreeIsland-Setup-1.0.3.exe'
+$setupExecutable = Join-Path $outputRoot 'FreeIsland-Setup-1.0.4.exe'
 $setupArguments = @('/nologo', '/codepage:65001', '/target:winexe', '/platform:anycpu', '/optimize+', "/out:$setupExecutable", "/win32icon:$iconPath", "/win32manifest:$manifest")
 $setupArguments += $installerReferences
 $setupArguments += @($commonSource, $installerAssembly, (Join-Path $installerDirectory 'Setup.cs'))
@@ -99,7 +99,7 @@ Write-Host '安装包内嵌文件 SHA-256 校验通过。'
 
 $readme = Join-Path $projectRoot 'README.md'
 if (Test-Path -LiteralPath $readme) { Copy-Item -LiteralPath $readme -Destination (Join-Path $portableDirectory 'README.md') -Force }
-$zipPath = Join-Path $outputRoot 'FreeIsland-Portable-1.0.3.zip'
+$zipPath = Join-Path $outputRoot 'FreeIsland-Portable-1.0.4.zip'
 $archiveFiles = @('FreeIsland.exe', 'FreeIsland.exe.config', 'FreeIsland.ico', 'README.md') | ForEach-Object { Join-Path $portableDirectory $_ } | Where-Object { Test-Path -LiteralPath $_ }
 Compress-Archive -LiteralPath $archiveFiles -DestinationPath $zipPath -CompressionLevel Optimal -Force
 $releaseHashes = @($setupExecutable, $zipPath, $recoveryUninstaller) | ForEach-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash + '  ' + [System.IO.Path]::GetFileName($_) }

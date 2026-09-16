@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([switch] $SkipTests, [switch] $PackageOnly)
 
 $ErrorActionPreference = 'Stop'
@@ -9,7 +9,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $frameworkDirectory 'csc.exe'))) {
 }
 $compiler = Join-Path $frameworkDirectory 'csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) {
-    throw '需要 Windows 自带的 .NET Framework C# 编译器。请安装 .NET Framework 4.8。'
+    throw '需要 Windows 自带的 .NET Framework 4.6 或更新版本的 C# 编译器。'
 }
 $outputRoot = Join-Path $projectRoot 'dist'
 $portableDirectory = Join-Path $outputRoot 'FreeIsland'
@@ -27,9 +27,9 @@ $iconPath = Join-Path $projectRoot 'assets\FreeIsland.ico'
 & (Join-Path $projectRoot 'assets\Generate-Icon.ps1') -OutputPath $iconPath
 Copy-Item -LiteralPath $iconPath -Destination (Join-Path $portableDirectory 'FreeIsland.ico') -Force
 
-$standardReferences = @('System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll', 'System.Runtime.Serialization.dll', 'System.Xaml.dll')
-$referenceArguments = @($standardReferences | ForEach-Object { '/reference:' + (Join-Path $frameworkDirectory $_) })
-$referenceArguments += @('PresentationCore.dll', 'PresentationFramework.dll', 'WindowsBase.dll') | ForEach-Object { '/reference:' + (Join-Path (Join-Path $frameworkDirectory 'WPF') $_) }
+$referenceDirectory = & (Join-Path $projectRoot 'tools\Get-Net46References.ps1') -ProjectRoot $projectRoot
+$standardReferences = @('mscorlib.dll', 'System.dll', 'System.Core.dll', 'System.Xml.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll', 'System.Runtime.Serialization.dll', 'System.Xaml.dll', 'PresentationCore.dll', 'PresentationFramework.dll', 'WindowsBase.dll')
+$referenceArguments = @('/noconfig', '/nostdlib+') + @($standardReferences | ForEach-Object { '/reference:' + (Join-Path $referenceDirectory $_) })
 $appExecutable = Join-Path $portableDirectory 'FreeIsland.exe'
 $manifest = Join-Path $projectRoot 'src\app.manifest'
 $appSources = @(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src') -Filter '*.cs' -File | Sort-Object Name | ForEach-Object { $_.FullName })
@@ -47,7 +47,7 @@ $configuration = @'
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <startup useLegacyV2RuntimeActivationPolicy="true">
-    <supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8" />
+    <supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.6" />
   </startup>
 </configuration>
 '@
@@ -66,18 +66,18 @@ if (-not $SkipTests -and (Test-Path -LiteralPath $coreTestSource)) {
 $installerDirectory = Join-Path $projectRoot 'installer'
 $commonSource = Join-Path $installerDirectory 'Common.cs'
 $installerAssembly = Join-Path $installerDirectory 'AssemblyInfo.cs'
-$installerReferences = @('/reference:System.dll', '/reference:System.Core.dll', '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll')
+$installerReferences = @('/noconfig', '/nostdlib+') + @(@('mscorlib.dll', 'System.dll', 'System.Core.dll', 'System.Windows.Forms.dll', 'System.Drawing.dll') | ForEach-Object { '/reference:' + (Join-Path $referenceDirectory $_) })
 $uninstallExecutable = Join-Path $portableDirectory 'FreeIsland.Uninstall.exe'
 Write-Host '正在编译每用户卸载器…'
 Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:winexe', '/platform:anycpu', '/optimize+', "/out:$uninstallExecutable", "/win32icon:$iconPath", "/win32manifest:$manifest") + $installerReferences + @($commonSource, $installerAssembly, (Join-Path $installerDirectory 'Uninstall.cs')))
-$recoveryUninstaller = Join-Path $outputRoot 'FreeIsland-Uninstall-1.0.4.exe'
+$recoveryUninstaller = Join-Path $outputRoot 'FreeIsland-Uninstall-1.0.5.exe'
 Copy-Item -LiteralPath $uninstallExecutable -Destination $recoveryUninstaller -Force
 
 $payloadNames = @('FreeIsland.exe', 'FreeIsland.exe.config', 'FreeIsland.ico', 'FreeIsland.Uninstall.exe')
 $payloadManifestPath = Join-Path $buildDirectory 'payload.sha256'
 $payloadHashes = @($payloadNames | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $portableDirectory $_) -Algorithm SHA256).Hash + '  ' + $_ })
 [System.IO.File]::WriteAllLines($payloadManifestPath, $payloadHashes, (New-Object System.Text.UTF8Encoding($false)))
-$setupExecutable = Join-Path $outputRoot 'FreeIsland-Setup-1.0.4.exe'
+$setupExecutable = Join-Path $outputRoot 'FreeIsland-Setup-1.0.5.exe'
 $setupArguments = @('/nologo', '/codepage:65001', '/target:winexe', '/platform:anycpu', '/optimize+', "/out:$setupExecutable", "/win32icon:$iconPath", "/win32manifest:$manifest")
 $setupArguments += $installerReferences
 $setupArguments += @($commonSource, $installerAssembly, (Join-Path $installerDirectory 'Setup.cs'))
@@ -99,7 +99,7 @@ Write-Host '安装包内嵌文件 SHA-256 校验通过。'
 
 $readme = Join-Path $projectRoot 'README.md'
 if (Test-Path -LiteralPath $readme) { Copy-Item -LiteralPath $readme -Destination (Join-Path $portableDirectory 'README.md') -Force }
-$zipPath = Join-Path $outputRoot 'FreeIsland-Portable-1.0.4.zip'
+$zipPath = Join-Path $outputRoot 'FreeIsland-Portable-1.0.5.zip'
 $archiveFiles = @('FreeIsland.exe', 'FreeIsland.exe.config', 'FreeIsland.ico', 'README.md') | ForEach-Object { Join-Path $portableDirectory $_ } | Where-Object { Test-Path -LiteralPath $_ }
 Compress-Archive -LiteralPath $archiveFiles -DestinationPath $zipPath -CompressionLevel Optimal -Force
 $releaseHashes = @($setupExecutable, $zipPath, $recoveryUninstaller) | ForEach-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash + '  ' + [System.IO.Path]::GetFileName($_) }

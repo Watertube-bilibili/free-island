@@ -43,6 +43,9 @@ namespace FreeIsland
             set { islandDotPercent = value; hasSavedDotPercent = true; }
         }
         [DataMember] public int GlassMode { get; set; }
+        [DataMember] public int GlassRefraction { get; set; }
+        [DataMember] public int GlassTransparency { get; set; }
+        [DataMember] public int GlassHighlight { get; set; }
         [DataMember] public double IslandScale { get; set; }
         [DataMember] public UsageScene Scene { get; set; }
         [DataMember] public bool SceneSelected { get; set; }
@@ -87,6 +90,9 @@ namespace FreeIsland
             hasSavedDotPercent = false;
             IslandDotSize = 6;
             GlassMode = 1;
+            GlassRefraction = 50;
+            GlassTransparency = 65;
+            GlassHighlight = 55;
             IslandScale = 1.0;
             Scene = UsageScene.Classroom;
             SceneSelected = false;
@@ -521,6 +527,9 @@ namespace FreeIsland
             if (Settings.IslandDotPercent < 0 || Settings.IslandDotPercent > 100) Settings.IslandDotPercent = 20;
             Settings.IslandDotSize = 3 + (17 * Settings.IslandDotPercent + 50) / 100;
             if (Settings.GlassMode < 0 || Settings.GlassMode > 2) Settings.GlassMode = 1;
+            Settings.GlassRefraction = Math.Max(0, Math.Min(100, Settings.GlassRefraction));
+            Settings.GlassTransparency = Math.Max(0, Math.Min(100, Settings.GlassTransparency));
+            Settings.GlassHighlight = Math.Max(0, Math.Min(100, Settings.GlassHighlight));
             if (double.IsNaN(Settings.IslandScale) || double.IsInfinity(Settings.IslandScale) || Settings.IslandScale < 0.75 || Settings.IslandScale > 1.5)
                 Settings.IslandScale = 1.0;
         }

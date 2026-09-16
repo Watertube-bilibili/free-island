@@ -33,6 +33,7 @@ namespace FreeIsland
         private bool lastEdge;
         private UsageScene lastScene;
         private int lastIslandDotSize, lastGlassMode;
+        private int lastGlassRefraction, lastGlassTransparency, lastGlassHighlight;
         private double lastIslandScale;
         private HwndSource hotkey;
         private string dataPath;
@@ -92,6 +93,10 @@ namespace FreeIsland
             lastScene = engine.Settings.Scene;
             lastIslandDotSize = engine.Settings.IslandDotSize;
             lastGlassMode = engine.Settings.GlassMode;
+            lastGlassRefraction = engine.Settings.GlassRefraction;
+            lastGlassTransparency = engine.Settings.GlassTransparency;
+            lastGlassHighlight = engine.Settings.GlassHighlight;
+            LiquidGlass.Configure(engine.Settings);
             lastIslandScale = engine.Settings.IslandScale;
             island = new IslandWindow(engine, OpenPanel, CommitIslandDock);
             new WindowInteropHelper(island).EnsureHandle();
@@ -232,6 +237,13 @@ namespace FreeIsland
             }
             if (lastPlacement != engine.Settings.Placement) { lastPlacement = engine.Settings.Placement; PreviewIsland(); }
             if (lastEdge != engine.Settings.EdgeHide) { lastEdge = engine.Settings.EdgeHide; ball.ApplyEdgePreference(); }
+            if (lastGlassRefraction != engine.Settings.GlassRefraction || lastGlassTransparency != engine.Settings.GlassTransparency || lastGlassHighlight != engine.Settings.GlassHighlight)
+            {
+                lastGlassRefraction = engine.Settings.GlassRefraction;
+                lastGlassTransparency = engine.Settings.GlassTransparency;
+                lastGlassHighlight = engine.Settings.GlassHighlight;
+                LiquidGlass.Configure(engine.Settings);
+            }
             if (lastGlassMode != engine.Settings.GlassMode)
             {
                 lastGlassMode = engine.Settings.GlassMode;

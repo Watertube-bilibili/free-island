@@ -50,10 +50,16 @@ namespace FreeIsland
             IsHitTestVisible = false;
             timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) };
             timer.Tick += Tick;
-            Loaded += delegate { SystemParameters.StaticPropertyChanged += SystemChanged; Refresh(); };
-            Unloaded += delegate { SystemParameters.StaticPropertyChanged -= SystemChanged; Stop(); };
+            Loaded += delegate { LiquidGlass.Surfaces.Add(this); SystemParameters.StaticPropertyChanged += SystemChanged; Refresh(); };
+            Unloaded += delegate { LiquidGlass.Surfaces.Remove(this); SystemParameters.StaticPropertyChanged -= SystemChanged; Stop(); };
             IsVisibleChanged += delegate { Refresh(); };
             SizeChanged += delegate { image = null; lens = null; lastCapture = DateTime.MinValue; Refresh(); };
+        }
+        internal void SettingsChanged()
+        {
+            lens = null; image = null;
+            if (backdrop != null) { RenderLens(); UpdateInk(); }
+            InvalidateVisual();
         }
         private void SystemChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
@@ -173,9 +179,10 @@ namespace FreeIsland
                 lens = new WaterLens(w, h); image = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
             }
             if (image == null) image = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
-            lens.Shape((Orb ? Math.Min(ActualWidth, ActualHeight) / 2 : Radius) * scale, pressure.Value, pullX.Value, pullY.Value, Compact);
+            lens.Shape((Orb ? Math.Min(ActualWidth, ActualHeight) / 2 : Radius) * scale, pressure.Value, pullX.Value, pullY.Value, Compact, LiquidGlass.Refraction);
             lens.Refract(backdrop.Pixels, backdrop.Width, backdrop.Height, backdrop.Stride,
-                screenBounds.Left - backdrop.ScreenBounds.Left, screenBounds.Top - backdrop.ScreenBounds.Top, screenBounds.Width / w, screenBounds.Height / h);
+                screenBounds.Left - backdrop.ScreenBounds.Left, screenBounds.Top - backdrop.ScreenBounds.Top, screenBounds.Width / w, screenBounds.Height / h,
+                LiquidGlass.Transparency, LiquidGlass.Highlight);
             image.WritePixels(new Int32Rect(0, 0, w, h), lens.Pixels, w * 4, 0);
         }
         private void UpdateInk()
@@ -204,10 +211,10 @@ namespace FreeIsland
             // animated texture, blur or desktop sampling is hidden behind this rim.
             var transform = new ScaleTransform(1 + pressure.Value * .025, 1 - pressure.Value * .037, w / 2, h / 2);
             drawing.PushTransform(transform);
-            var edge = new LinearGradientBrush(Color.FromArgb(218, 255, 255, 255), Color.FromArgb(105, 28, 35, 42), new Point(.15, 0), new Point(.82, 1));
-            drawing.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(30, 240, 245, 249)), new Pen(edge, 1.1), bounds, radius, radius);
+            var edge = new LinearGradientBrush(Color.FromArgb(LiquidGlass.EdgeAlpha(218), 255, 255, 255), Color.FromArgb(LiquidGlass.EdgeAlpha(105), 28, 35, 42), new Point(.15, 0), new Point(.82, 1));
+            drawing.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(LiquidGlass.FillAlpha, 240, 245, 249)), new Pen(edge, .7 + .4 * LiquidGlass.Refraction), bounds, radius, radius);
             bounds.Inflate(-1.7, -1.7);
-            if (bounds.Width > 0 && bounds.Height > 0) drawing.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb(65, 255, 255, 255)), .65), bounds, Math.Max(0, radius - 1.7), Math.Max(0, radius - 1.7));
+            if (bounds.Width > 0 && bounds.Height > 0) drawing.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb(LiquidGlass.EdgeAlpha(65), 255, 255, 255)), .65), bounds, Math.Max(0, radius - 1.7), Math.Max(0, radius - 1.7));
             drawing.Pop();
         }
 
@@ -226,8 +233,8 @@ namespace FreeIsland
                 double stroke = Math.Min(.65, Math.Min(w, h) * .14);
                 double sx = 1 + pressure.Value * .025, sy = 1 - pressure.Value * .037;
                 double rx = Math.Max(0, (w - stroke) * .5 * sx), ry = Math.Max(0, (h - stroke) * .5 * sy);
-                var edge = new LinearGradientBrush(Color.FromArgb(240, 255, 255, 255), Color.FromArgb(195, 23, 34, 45), new Point(.1, 0), new Point(.85, 1));
-                drawing.DrawEllipse(refracted ? null : new SolidColorBrush(Color.FromArgb(38, 238, 245, 250)), new Pen(edge, stroke), new Point(w / 2, h / 2), rx, ry);
+                var edge = new LinearGradientBrush(Color.FromArgb(Math.Max((byte)90, LiquidGlass.EdgeAlpha(240)), 255, 255, 255), Color.FromArgb(Math.Max((byte)90, LiquidGlass.EdgeAlpha(195)), 23, 34, 45), new Point(.1, 0), new Point(.85, 1));
+                drawing.DrawEllipse(refracted ? null : new SolidColorBrush(Color.FromArgb(LiquidGlass.FillAlpha, 238, 245, 250)), new Pen(edge, stroke), new Point(w / 2, h / 2), rx, ry);
             }
             drawing.Pop();
         }
@@ -235,6 +242,20 @@ namespace FreeIsland
 
     internal static class LiquidGlass
     {
+        internal static readonly HashSet<LiquidGlassSurface> Surfaces = new HashSet<LiquidGlassSurface>();
+        internal static double Refraction = 1, Transparency = .65, Highlight = 1;
+        internal static byte FillAlpha { get { return (byte)Math.Round(255 * Math.Pow(1 - Transparency, 2)); } }
+        internal static byte EdgeAlpha(int original) { return (byte)Math.Min(255, Math.Max(0, original * Highlight)); }
+        internal static void Configure(AppSettings settings)
+        {
+            if (settings == null) return;
+            double bend = Math.Max(0, Math.Min(100, settings.GlassRefraction)) / 50.0;
+            double transmission = Math.Max(0, Math.Min(100, settings.GlassTransparency)) / 100.0;
+            double rim = Math.Max(0, Math.Min(100, settings.GlassHighlight)) / 55.0;
+            if (bend == Refraction && transmission == Transparency && rim == Highlight) return;
+            Refraction = bend; Transparency = transmission; Highlight = rim;
+            foreach (var surface in new List<LiquidGlassSurface>(Surfaces)) surface.SettingsChanged();
+        }
         internal static readonly DependencyProperty ReadablePanelProperty = DependencyProperty.RegisterAttached("ReadablePanel", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
         private static readonly DependencyProperty PointerWiredProperty = DependencyProperty.RegisterAttached("PointerWired", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
         private static readonly DependencyProperty OriginalInkProperty = DependencyProperty.RegisterAttached("OriginalInk", typeof(Brush), typeof(LiquidGlass));

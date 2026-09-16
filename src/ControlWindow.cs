@@ -20,6 +20,8 @@ namespace FreeIsland
         private readonly Action previewIsland, restoreBall, openPresentation;
         private readonly bool classroom;
         private readonly DispatcherTimer refreshTimer;
+        private readonly DispatcherTimer glassSaveTimer;
+        private bool glassSettingsPending;
         private readonly ContentControl content;
         private readonly TextBlock pageTitle, pageCaption, clock, feedback;
         private readonly Dictionary<string, Button> navigation = new Dictionary<string, Button>();
@@ -89,11 +91,15 @@ namespace FreeIsland
             PreviewKeyDown += delegate(object sender, KeyEventArgs e) { if (e.Key == Key.Escape) { Hide(); e.Handled = true; } };
             refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
             refreshTimer.Tick += delegate { if (!IsVisible) return; RefreshClock(); if (updatePage != null) updatePage(); if (DateTime.Now > feedbackUntil) feedback.Text = ""; };
-            Closed += delegate { refreshTimer.Stop(); }; refreshTimer.Start(); Navigate("home");
+            glassSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            glassSaveTimer.Tick += delegate { SaveGlassSettings(); };
+            IsVisibleChanged += delegate { if (!IsVisible && !AllowClose) SaveGlassSettings(); };
+            Closed += delegate { refreshTimer.Stop(); glassSaveTimer.Stop(); }; refreshTimer.Start(); Navigate("home");
         }
 
         public void Navigate(string page)
         {
+            SaveGlassSettings();
             bool transition = content.Content != null && IsVisible && page != currentPage; currentPage = labels.ContainsKey(page) ? page : "home"; updatePage = null;
             foreach (var pair in navigation) { bool active = pair.Key == currentPage; pair.Value.Background = active ? selected : Brushes.Transparent; pair.Value.BorderBrush = active ? B("#CDD6FF") : Brushes.Transparent; pair.Value.Content = IconLabel(pair.Key, labels[pair.Key], active ? B("#384FC2") : muted, classroom ? 18 : 14); }
             if (currentPage == "stopwatch") BuildStopwatch(); else if (currentPage == "countdown") BuildCountdown(); else if (currentPage == "reminders") BuildReminders(); else if (currentPage == "shutdown") BuildShutdown(); else if (currentPage == "settings") BuildSettings(); else BuildHome();
@@ -198,11 +204,42 @@ namespace FreeIsland
             placement.Children.Add(Divider(classroom ? 18 : 16));
             placement.Children.Add(T("液态玻璃", classroom ? 23 : 19, ink, FontWeights.SemiBold));
             var glassHint = T("", SmallSize, muted, FontWeights.Normal, new Thickness(0, 7, 0, 12));
-            string[] glassDescriptions = { "纯色表面，清晰安静。", "清透表面与细水滴边缘，低占用；适合录屏、共享和低配置电脑。", "实时折射下方画面，按压与拖动时柔和形变。需要 Windows 10 2004 或更新版本；录屏和屏幕共享可能看不到浮窗。不支持时显示清透轻量材质。" };
+            string[] glassDescriptions = { "纯色表面，清晰安静。玻璃参数暂不生效，重新开启后保留。", "清透表面与细水滴边缘，低占用；适合录屏、共享和低配置电脑。折射度仅在水滴模式生效。", "水滴：背景折射与柔和形变。早期 Win10 使用兼容采样；无法获取背景时保持清透材质。现代系统水滴模式可能不出现在录屏中；录屏请选择轻量。" };
             string[] glassNames = { "关闭", "轻量", "水滴" };
             string[] glassIds = { "GlassModeOff", "GlassModeLite", "GlassModeStandard" };
             var glassButtons = new Dictionary<int, Button>();
             var glassChoices = new UniformGrid { Columns = 3, Margin = new Thickness(-5, 0, -5, 0) };
+            var refraction = GlassSlider("GlassRefractionSlider", "玻璃折射度", engine.Settings.GlassRefraction, 50);
+            var transparency = GlassSlider("GlassTransparencySlider", "玻璃透明度", engine.Settings.GlassTransparency, 65);
+            var highlight = GlassSlider("GlassHighlightSlider", "玻璃边缘高光", engine.Settings.GlassHighlight, 55);
+            var glassControls = new StackPanel { Margin = new Thickness(0, 16, 0, 0) };
+            glassControls.Children.Add(GlassParameter("折射度", "背景弯曲的强弱，仅水滴模式生效。", refraction));
+            glassControls.Children.Add(GlassParameter("透明度", "越高越清透；文字衬底保持清晰。", transparency));
+            glassControls.Children.Add(GlassParameter("边缘高光", "调节水滴边缘的明亮程度。", highlight));
+            bool resetGlassValues = false;
+            Action previewGlass = delegate
+            {
+                if (resetGlassValues) return;
+                engine.Settings.GlassRefraction = (int)Math.Round(refraction.Value);
+                engine.Settings.GlassTransparency = (int)Math.Round(transparency.Value);
+                engine.Settings.GlassHighlight = (int)Math.Round(highlight.Value);
+                LiquidGlass.Configure(engine.Settings);
+                glassSettingsPending = true; glassSaveTimer.Stop(); glassSaveTimer.Start();
+            };
+            refraction.ValueChanged += delegate { previewGlass(); };
+            transparency.ValueChanged += delegate { previewGlass(); };
+            highlight.ValueChanged += delegate { previewGlass(); };
+            var glassActions = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+            var previewGlassButton = Btn("预览玻璃", delegate { previewIsland(); }); previewGlassButton.Name = "PreviewGlass"; previewGlassButton.MinHeight = Math.Max(44, TargetHeight); glassActions.Children.Add(previewGlassButton);
+            var resetGlass = Btn("恢复推荐参数", delegate
+            {
+                resetGlassValues = true;
+                refraction.Value = 50; transparency.Value = 65; highlight.Value = 55;
+                resetGlassValues = false; previewGlass(); SaveGlassSettings();
+            }, false, new Thickness(10, 0, 0, 0));
+            resetGlass.Name = "ResetGlassParameters"; resetGlass.MinHeight = Math.Max(44, TargetHeight); glassActions.Children.Add(resetGlass);
+            glassControls.Children.Add(glassActions);
+            glassControls.Children.Add(T("实时预览，停止调整后自动保存；悬浮球、灵动岛与小水滴一起生效。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 9, 0, 0)));
             Action updateGlassChoice = delegate
             {
                 foreach (var choice in glassButtons)
@@ -213,6 +250,8 @@ namespace FreeIsland
                     System.Windows.Automation.AutomationProperties.SetItemStatus(choice.Value, active ? "已选择" : "未选择");
                 }
                 glassHint.Text = glassDescriptions[Math.Max(0, Math.Min(2, engine.Settings.GlassMode))];
+                refraction.IsEnabled = engine.Settings.GlassMode == 2;
+                transparency.IsEnabled = highlight.IsEnabled = resetGlass.IsEnabled = engine.Settings.GlassMode != 0;
             };
             for (int i = 0; i < glassNames.Length; i++)
             {
@@ -222,7 +261,7 @@ namespace FreeIsland
                 System.Windows.Automation.AutomationProperties.SetName(button, (i == 2 ? "标准" : glassNames[i]) + "液态玻璃");
                 button.ToolTip = glassDescriptions[i]; glassButtons.Add(i, button); glassChoices.Children.Add(button);
             }
-            updateGlassChoice(); placement.Children.Add(glassHint); placement.Children.Add(glassChoices); placement.Children.Add(Divider(classroom ? 18 : 16));
+            updateGlassChoice(); placement.Children.Add(glassHint); placement.Children.Add(glassChoices); placement.Children.Add(glassControls); placement.Children.Add(Divider(classroom ? 18 : 16));
             var dotSize = DotSlider(engine.Settings.IslandDotPercent);
             var dotReadout = T("", BodySize, ink, FontWeights.Medium, new Thickness(0, 1, 0, 0));
             System.Windows.Automation.AutomationProperties.SetName(dotReadout, "黑点大小预览");
@@ -247,6 +286,35 @@ namespace FreeIsland
             placement.Children.Add(sizeActions); page.Children.Add(Surface(placement, classroom ? 20 : 21));
             var preferences = new StackPanel(); preferences.Children.Add(Setting("开机自启动", "登录 Windows 后静默启动，不弹出控制中心。", engine.Settings.AutoStart, delegate(bool value) { if (!engine.IsSafeMode) StartupRegistration.SetEnabled(value); engine.Settings.AutoStart = value; engine.SaveSettings(); })); preferences.Children.Add(Divider(classroom ? 14 : 16)); preferences.Children.Add(Setting("提醒声音", "倒计时结束、日程到时发出提示音。", engine.Settings.SoundEnabled, delegate(bool value) { engine.Settings.SoundEnabled = value; engine.SaveSettings(); })); preferences.Children.Add(Divider(classroom ? 14 : 16)); preferences.Children.Add(Setting("悬浮球靠边隐藏", "拖到屏幕边缘后收起，仅保留小箭头。", engine.Settings.EdgeHide, delegate(bool value) { engine.Settings.EdgeHide = value; engine.SaveSettings(); })); var settings = Surface(preferences, classroom ? 20 : 21); settings.Margin = new Thickness(0, classroom ? 16 : 20, 0, 0); page.Children.Add(settings);
             var actions = new WrapPanel(); actions.Children.Add(IconButton("home", "找回悬浮球", delegate { restoreBall(); Notify("悬浮球已回到可见位置。"); }, true)); var preview = IconButton("expand", "预览灵动岛", delegate { previewIsland(); }); preview.Margin = new Thickness(10, 0, 0, 0); actions.Children.Add(preview); ReserveActions(actions);
+        }
+
+        private void SaveGlassSettings()
+        {
+            if (!glassSettingsPending) return;
+            glassSaveTimer.Stop();
+            try { engine.SaveSettings(); glassSettingsPending = false; Notify("玻璃参数已保存。"); }
+            catch (Exception ex) { Notify("玻璃参数未保存：" + ex.Message + "。请再次调整后重试。", true); }
+        }
+
+        private Slider GlassSlider(string name, string label, int value, int recommended)
+        {
+            var slider = DotSlider(value);
+            slider.Name = name; slider.Width = double.NaN; slider.HorizontalAlignment = HorizontalAlignment.Stretch;
+            slider.Height = Math.Max(44, TargetHeight);
+            System.Windows.Automation.AutomationProperties.SetName(slider, label);
+            System.Windows.Automation.AutomationProperties.SetHelpText(slider, "0 到 100%，推荐 " + recommended + "%。拖动或使用方向键微调；停止调整后自动保存。");
+            return slider;
+        }
+
+        private FrameworkElement GlassParameter(string title, string description, Slider slider)
+        {
+            var row = new StackPanel { Margin = new Thickness(0, 0, 0, classroom ? 13 : 10) };
+            var heading = new Grid(); heading.ColumnDefinitions.Add(new ColumnDefinition()); heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            heading.Children.Add(T(title, BodySize, ink, FontWeights.Medium));
+            var value = T("", BodySize, ink, FontWeights.SemiBold); value.MinWidth = 60; value.TextAlignment = TextAlignment.Right;
+            Action refresh = delegate { value.Text = Math.Round(slider.Value).ToString(CultureInfo.InvariantCulture) + "%"; };
+            slider.ValueChanged += delegate { refresh(); }; refresh(); Grid.SetColumn(value, 1); heading.Children.Add(value);
+            row.Children.Add(heading); row.Children.Add(slider); row.Children.Add(T(description, SmallSize, muted)); return row;
         }
 
         private Slider DotSlider(int percent)

@@ -33,7 +33,10 @@ struct Settings {
     double anchor = 0.5;
     int islandDotPercent = 20;
     int islandDotSize = 6; // Derived physical pixels, independent of monitor DPI.
-    int glassMode = 1; // 0 = off, 1 = lite, 2 = standard.
+    int glassMode = 1; // 0 = off, 1 = lite, 2 = water motion (no desktop refraction).
+    int glassRefraction = 50; // Curved rim thickness/appearance on Windows 7.
+    int glassTransparency = 65;
+    int glassHighlight = 55;
     double islandScale = 1.0;
     std::wstring monitor;
 };

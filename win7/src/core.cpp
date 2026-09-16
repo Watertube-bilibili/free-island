@@ -178,6 +178,12 @@ bool ParseState(const std::string& file, SavedState& state) {
             if (!Number(value, state.settings.islandDotPercent)) state.settings.islandDotPercent = 20;
         } else if (key == "glassMode") {
             if (!Number(value, state.settings.glassMode)) state.settings.glassMode = 1;
+        } else if (key == "glassRefraction") {
+            if (!Number(value, state.settings.glassRefraction)) state.settings.glassRefraction = 50;
+        } else if (key == "glassTransparency") {
+            if (!Number(value, state.settings.glassTransparency)) state.settings.glassTransparency = 65;
+        } else if (key == "glassHighlight") {
+            if (!Number(value, state.settings.glassHighlight)) state.settings.glassHighlight = 55;
         } else if (key == "islandScale") {
             if (!Number(value, state.settings.islandScale)) state.settings.islandScale = 1.0;
         }
@@ -508,6 +514,9 @@ void Engine::NormalizeSettings() {
     if (settings.islandDotPercent < 0 || settings.islandDotPercent > 100) settings.islandDotPercent = 20;
     settings.islandDotSize = 3 + (17 * settings.islandDotPercent + 50) / 100;
     if (settings.glassMode < 0 || settings.glassMode > 2) settings.glassMode = 1;
+    if (settings.glassRefraction < 0 || settings.glassRefraction > 100) settings.glassRefraction = 50;
+    if (settings.glassTransparency < 0 || settings.glassTransparency > 100) settings.glassTransparency = 65;
+    if (settings.glassHighlight < 0 || settings.glassHighlight > 100) settings.glassHighlight = 55;
     if (!std::isfinite(settings.islandScale) || settings.islandScale < 0.75 || settings.islandScale > 1.5) settings.islandScale = 1.0;
     if (settings.monitor.size() > 260 || settings.monitor.find(L'\0') != std::wstring::npos) settings.monitor.clear();
 }
@@ -529,6 +538,9 @@ void Engine::Save() {
         << "islandDotSize=" << settings.islandDotSize << '\n'
         << "islandDotPercent=" << settings.islandDotPercent << '\n'
         << "glassMode=" << settings.glassMode << '\n'
+        << "glassRefraction=" << settings.glassRefraction << '\n'
+        << "glassTransparency=" << settings.glassTransparency << '\n'
+        << "glassHighlight=" << settings.glassHighlight << '\n'
         << "islandScale=" << settings.islandScale << '\n'
         << "monitor=" << HexText(settings.monitor) << '\n'
         << "countdownActive=" << countdownActive << '\n'

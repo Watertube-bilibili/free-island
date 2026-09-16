@@ -266,6 +266,37 @@ internal static class WaterLensTests
         }
     }
 
+    private static void AdjustableOptics()
+    {
+        var lens = new WaterLens(112, 76);
+        byte[] background = Checker(192, 144, 7);
+        lens.Shape(28, 0, 0, 0, false, 0);
+        lens.Refract(background, 192, 144, 768, 37, 29, 1, 1, 1, 0);
+        byte[] flat = (byte[])lens.Pixels.Clone();
+        lens.Shape(28, 0, 0, 0, false, 2);
+        lens.Refract(background, 192, 144, 768, 37, 29, 1, 1, 1, 0);
+        int displaced = 0;
+        for (int i = 0; i < flat.Length; i += 4) if (Math.Abs(flat[i] - lens.Pixels[i]) > 30) displaced++;
+        Check(displaced > 500, "refraction slider must change sampled pixels, not only lighting");
+        lens.Shape(28, 0, 0, 0, false, 0);
+        lens.Refract(background, 192, 144, 768, 37, 29, 1, 1, 1, 0);
+        for (int i = 0; i < flat.Length; i++) Check(flat[i] == lens.Pixels[i], "returning to zero must invalidate cached optical shape");
+        byte[] solid = Solid(192, 144, 768, 39, 113, 181);
+        lens.Refract(solid, 192, 144, 768, 37, 29, 1, 1, 0, 0);
+        int center = (38 * 112 + 56) * 4;
+        Check(lens.Pixels[center] == 248 && lens.Pixels[center + 1] == 248 && lens.Pixels[center + 2] == 248, "zero transmission produces a dense neutral surface");
+        lens.Refract(solid, 192, 144, 768, 37, 29, 1, 1, 1, 0);
+        Check(lens.Pixels[center] == 39 && lens.Pixels[center + 1] == 113 && lens.Pixels[center + 2] == 181, "maximum transmission preserves the source colors");
+        byte[] unlit = (byte[])lens.Pixels.Clone();
+        lens.Refract(solid, 192, 144, 768, 37, 29, 1, 1, 1, 2);
+        int lit = 0; for (int i = 0; i < flat.Length; i += 4) if (unlit[i] != lens.Pixels[i]) lit++;
+        Check(lit > 100, "highlight slider must change the material rim");
+        Premultiplied(lens);
+        Reject(delegate { lens.Shape(28, 0, 0, 0, false, Double.NaN); }, "non-finite refraction");
+        Reject(delegate { lens.Refract(solid, 192, 144, 768, 37, 29, 1, 1, Double.NaN, 1); }, "non-finite transparency");
+        Reject(delegate { lens.Refract(solid, 192, 144, 768, 37, 29, 1, 1, 1, Double.PositiveInfinity); }, "non-finite highlight");
+    }
+
     private static int Main()
     {
         Run("actual geometric displacement of fixed checker colors", GeometricRefraction);
@@ -279,6 +310,7 @@ internal static class WaterLensTests
         Run("non-finite source transforms rejected at the boundary", RejectNonFiniteSampling);
         Run("press/release convergence at 30/60/144 Hz and delayed frame", SpringConvergence);
         Run("non-finite spring time rejected", NonFiniteSpringTime);
+        Run("independent refraction, transmission and highlight controls", AdjustableOptics);
         Run("typical-size managed CPU performance", Performance);
         Console.WriteLine("RESULT " + passed + " passed, " + failed + " failed. Fixed synthetic pixels only; no desktop capture or OS actions.");
         return failed == 0 ? 0 : 1;

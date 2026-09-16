@@ -18,6 +18,8 @@ internal static class CoreTests
             Run("island docking settings compatibility and validation", IslandDockingSettings);
             Run("island sizing defaults, migration and persistence", IslandSizingSettings);
             Run("island sizing validation before save and after load", IslandSizingValidation);
+            Run("glass parameters migrate old settings and persist independently", GlassParameterSettings);
+            Run("glass parameters clamp on save and load", GlassParameterValidation);
             Run("usage scene persistence, old settings and invalid scene", UsageSceneSettings);
             Run("duration and future-date validation", Validation);
             Run("stopwatch pause and reset", Stopwatch);
@@ -210,6 +212,49 @@ internal static class CoreTests
         using (CoreEngine engine = Engine(path, delegate { return now; }))
             Check(engine.Settings.IslandDotPercent == 80 && engine.Settings.IslandDotSize == 17 && engine.Settings.GlassMode == 2,
                 "Explicit percentage overrides conflicting legacy size during load");
+    }
+
+    private static void GlassParameterSettings()
+    {
+        DateTime now = Start;
+        string path = NewDirectory();
+        File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"Settings\":{\"AutoStart\":false,\"GlassMode\":2,\"IslandDotPercent\":80,\"Placement\":2},\"Reminders\":[{\"Id\":\"preserved\",\"Title\":\"Lesson\",\"DueAt\":\"\\/Date(4102444800000)\\/\",\"Daily\":true,\"Completed\":false}]}");
+        using (CoreEngine engine = Engine(path, delegate { return now; }))
+        {
+            Check(engine.Settings.GlassRefraction == 50 && engine.Settings.GlassTransparency == 65 && engine.Settings.GlassHighlight == 55, "Old files receive recommended glass defaults");
+            Check(!engine.Settings.AutoStart && engine.Settings.GlassMode == 2 && engine.Settings.IslandDotPercent == 80 && engine.Settings.Placement == IslandPlacement.Right && engine.Reminders.Count == 1, "Migration preserves unrelated preferences and reminder");
+            engine.Settings.GlassRefraction = 0; engine.Settings.GlassTransparency = 100; engine.Settings.GlassHighlight = 17;
+            engine.SaveSettings();
+        }
+        using (CoreEngine restored = Engine(path, delegate { return now; }))
+        {
+            Check(restored.Settings.GlassRefraction == 0 && restored.Settings.GlassTransparency == 100 && restored.Settings.GlassHighlight == 17, "Explicit zero, hundred and custom parameters survive restart");
+            restored.Settings.GlassMode = 0; restored.SaveSettings();
+        }
+        using (CoreEngine restored = Engine(path, delegate { return now; }))
+            Check(restored.Settings.GlassMode == 0 && restored.Settings.GlassRefraction == 0 && restored.Settings.GlassTransparency == 100 && restored.Settings.GlassHighlight == 17, "Disabling material preserves parameters");
+        File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"Settings\":{\"GlassTransparency\":0}}");
+        using (CoreEngine restored = Engine(path, delegate { return now; }))
+            Check(restored.Settings.GlassRefraction == 50 && restored.Settings.GlassTransparency == 0 && restored.Settings.GlassHighlight == 55, "Missing fields default independently of explicitly saved zero");
+    }
+
+    private static void GlassParameterValidation()
+    {
+        DateTime now = Start;
+        string path = NewDirectory();
+        foreach (int invalid in new[] { int.MinValue, -1, 101, int.MaxValue })
+        {
+            int expected = invalid < 0 ? 0 : 100;
+            using (CoreEngine engine = Engine(path, delegate { return now; }))
+            {
+                engine.Settings.GlassRefraction = engine.Settings.GlassTransparency = engine.Settings.GlassHighlight = invalid;
+                engine.SaveSettings();
+                Check(engine.Settings.GlassRefraction == expected && engine.Settings.GlassTransparency == expected && engine.Settings.GlassHighlight == expected, "Out-of-range values clamp before save");
+            }
+            File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"Settings\":{\"GlassRefraction\":" + invalid + ",\"GlassTransparency\":" + invalid + ",\"GlassHighlight\":" + invalid + "}}");
+            using (CoreEngine restored = Engine(path, delegate { return now; }))
+                Check(restored.Settings.GlassRefraction == expected && restored.Settings.GlassTransparency == expected && restored.Settings.GlassHighlight == expected, "Out-of-range values clamp after load");
+        }
     }
 
     private static void IslandSizingValidation()

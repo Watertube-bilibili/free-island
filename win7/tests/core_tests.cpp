@@ -405,9 +405,11 @@ void SafeShutdown() {
     Check(e.SafeMode(), "Safe mode accessor.");
     e.ScheduleShutdown(time.wall + 70000); e.Tick();
     Check(Notices(e, "shutdown").empty(), "No early shutdown warning.");
-    time.Advance(10000); e.Tick(); e.Tick();
+    time.Advance(59999); e.Tick();
+    Check(Notices(e, "shutdown").empty() && !e.ShutdownVisible(), "No warning or island at 10.001 seconds.");
+    time.Advance(1); e.Tick(); e.Tick();
     std::vector<fi::Notice> warning = Notices(e, "shutdown");
-    Check(warning.size() == 1 && warning[0].title == L"即将自动关机", "Single 60-second warning.");
+    Check(warning.size() == 1 && warning[0].title == L"即将自动关机" && e.ShutdownVisible(), "Single final-10-second warning.");
     e.CancelShutdown(); time.Advance(60000); e.Tick();
     Check(!e.shutdownAt && Notices(e, "shutdown").empty() && time.calls == 0, "Cancellation takes effect.");
     e.ScheduleShutdown(time.wall + 1000); e.Tick();
@@ -522,6 +524,32 @@ void LocalTimeRoundtrip() {
     Reject([&]() { fi::LocalToMs(bad); });
 }
 
+void TaskThumbnailState() {
+    Clock time; const std::wstring path = Directory();
+    {
+        fi::Engine e(path, true, time.Wall(), time.Mono(), time.Shutdown());
+        Check(e.settings.activeDotDesktop == 36 && e.settings.activeDotClassroom == 48, "Per-scene thumbnail defaults.");
+        e.settings.activeDotDesktop = 30; e.settings.activeDotClassroom = 50;
+        e.StartCountdown(120000); time.Advance(30000); e.PauseCountdown();
+        Equal(120000, e.CountdownDurationMs(), "Ring denominator keeps original duration after pause.");
+        Equal(90000, e.CountdownMs(), "Ring numerator is paused remaining time.");
+    }
+    {
+        fi::Engine e(path, true, time.Wall(), time.Mono(), time.Shutdown());
+        Check(e.settings.activeDotDesktop == 30 && e.settings.activeDotClassroom == 50, "Thumbnail settings survive restart.");
+        Equal(120000, e.CountdownDurationMs(), "Original duration survives restart.");
+        e.settings.activeDotDesktop = 29; e.settings.activeDotClassroom = 51; e.Save();
+        Check(e.settings.activeDotDesktop == 36 && e.settings.activeDotClassroom == 48, "Invalid sizes restore scene defaults.");
+        e.PauseCountdown(); time.Advance(10000); Equal(120000, e.CountdownDurationMs(), "Resume does not reset ring.");
+        e.StartCountdown(20000); Equal(20000, e.CountdownDurationMs(), "Replacement resets original duration.");
+        e.CancelCountdown(); Equal(0, e.CountdownDurationMs(), "Cancel clears ring state.");
+    }
+    const std::wstring legacy = Directory();
+    SettingsFixture(legacy, "countdownActive=1\ncountdownRunning=0\npausedCountdown=15000\n");
+    fi::Engine old(legacy, true, time.Wall(), time.Mono(), time.Shutdown());
+    Equal(15000, old.CountdownDurationMs(), "Legacy countdown establishes a valid ring denominator.");
+}
+
 void Run(const char* name, const std::function<void()>& test) {
     test(); ++passed; std::cout << "PASS " << name << std::endl;
 }
@@ -571,6 +599,7 @@ int main() {
         Run("shutdown and stopwatch never restored", ShutdownAndStopwatchNeverRestored);
         Run("checksummed atomic backup recovery", CorruptBackupAndChecksum);
         Run("native local/UTC time conversion", LocalTimeRoundtrip);
+        Run("thumbnail scene sizing, persistence, countdown ring pause and migration", TaskThumbnailState);
         std::cout << "PASS: " << passed << " native core tests. No registry or OS shutdown commands executed." << std::endl;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << std::endl;

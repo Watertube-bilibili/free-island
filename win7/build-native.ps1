@@ -27,8 +27,8 @@ foreach ($directory in @($buildDirectory, $outputDirectory, $portableDirectory))
 }
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $appExecutable = Join-Path $portableDirectory 'FreeIslandWin7.exe'
-$setupExecutable = Join-Path $outputDirectory 'FreeIsland-Win7-Setup-1.0.6.exe'
-$zipPath = Join-Path $outputDirectory 'FreeIsland-Win7-Portable-1.0.6.zip'
+$setupExecutable = Join-Path $outputDirectory 'FreeIsland-Win7-Setup-1.0.7.exe'
+$zipPath = Join-Path $outputDirectory 'FreeIsland-Win7-Portable-1.0.7.zip'
 $runtimeLicense = Join-Path (Split-Path -Parent $CompilerDirectory) 'COPYING.MinGW-w64-runtime.txt'
 if (-not (Test-Path -LiteralPath $runtimeLicense)) { throw '编译器缺少 COPYING.MinGW-w64-runtime.txt。' }
 
@@ -44,7 +44,7 @@ $commonArguments = @(
     '-Wl,--dynamicbase,--nxcompat,--no-insert-timestamp'
 )
 $guiArguments = @('-mwindows', '-municode')
-$libraries = @('-lgdiplus', '-lcomctl32', '-lshell32', '-lshlwapi', '-lole32', '-loleaut32', '-luuid', '-ladvapi32', '-lwinmm', '-lgdi32', '-luser32')
+$libraries = @('-lgdiplus', '-lcomctl32', '-lshell32', '-lshlwapi', '-lole32', '-loleaut32', '-luuid', '-ladvapi32', '-lwinmm', '-lgdi32', '-luser32', '-lwinhttp', '-lversion')
 
 function Invoke-NativeCompiler {
     param([string[]] $CompilerArguments)
@@ -80,7 +80,7 @@ function Assert-NativeWindows7 {
     $report = Join-Path $buildDirectory ([System.IO.Path]::GetFileName($Executable) + '.imports.txt')
     [System.IO.File]::WriteAllLines($report, [string[]] $dump, $utf8)
     $imports = @($dump | ForEach-Object { if ($_ -match 'DLL Name:\s*(\S+)') { $Matches[1].ToLowerInvariant() } } | Sort-Object -Unique)
-    $allowed = @('advapi32.dll', 'comctl32.dll', 'comdlg32.dll', 'gdi32.dll', 'gdiplus.dll', 'imm32.dll', 'kernel32.dll', 'msvcrt.dll', 'ole32.dll', 'oleaut32.dll', 'shell32.dll', 'shlwapi.dll', 'user32.dll', 'uxtheme.dll', 'version.dll', 'winmm.dll')
+    $allowed = @('advapi32.dll', 'comctl32.dll', 'comdlg32.dll', 'gdi32.dll', 'gdiplus.dll', 'imm32.dll', 'kernel32.dll', 'msvcrt.dll', 'ole32.dll', 'oleaut32.dll', 'shell32.dll', 'shlwapi.dll', 'user32.dll', 'uxtheme.dll', 'version.dll', 'winmm.dll', 'winhttp.dll')
     foreach ($dll in $imports) {
         if ($allowed -notcontains $dll) { throw "导入了非允许的 Windows 7 系统 DLL：$dll ($Executable)" }
     }
@@ -93,7 +93,7 @@ Push-Location $projectRoot
 try {
     Write-Host '正在编译 Windows 7 原生应用…'
     Invoke-ResourceCompiler -InputFile 'win7\resources\app.rc' -OutputFile 'artifacts\win7-native\app-res.o'
-    Invoke-NativeCompiler -CompilerArguments ($commonArguments + $guiArguments + @('win7\src\main.cpp', 'win7\src\core.cpp', 'artifacts\win7-native\app-res.o', '-o', $appExecutable) + $libraries)
+    Invoke-NativeCompiler -CompilerArguments ($commonArguments + $guiArguments + @('win7\src\main.cpp', 'win7\src\core.cpp', 'win7\src\update.cpp', 'artifacts\win7-native\app-res.o', '-o', $appExecutable) + $libraries)
     Assert-NativeWindows7 -Executable $appExecutable
 
     $coreTestSource = Join-Path $projectRoot 'win7\tests\core_tests.cpp'
@@ -104,6 +104,11 @@ try {
         Assert-NativeWindows7 -Executable $testExecutable -ExpectedSubsystem 3
         & $testExecutable
         if ($LASTEXITCODE -ne 0) { throw "原生核心行为测试失败：$LASTEXITCODE" }
+        $updateTestExecutable = Join-Path $buildDirectory 'UpdateTests.exe'
+        Invoke-NativeCompiler -CompilerArguments ($commonArguments + @('-municode', '-DFI_UPDATE_TESTING', 'win7\src\update.cpp', 'win7\tests\update_tests.cpp', 'artifacts\win7-native\app-res.o', '-o', $updateTestExecutable) + $libraries)
+        Assert-NativeWindows7 -Executable $updateTestExecutable -ExpectedSubsystem 3
+        & $updateTestExecutable (Join-Path $buildDirectory ('update-fixture-' + [Guid]::NewGuid().ToString('N')))
+        if ($LASTEXITCODE -ne 0) { throw "Native update fixture tests failed: $LASTEXITCODE" }
     }
 
     $payloadHash = (Get-FileHash -LiteralPath $appExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -118,8 +123,8 @@ try {
 202 RCDATA "payload.sha256"
 203 RCDATA "COPYING.MinGW-w64-runtime.txt"
 1 VERSIONINFO
- FILEVERSION 1,0,6,0
- PRODUCTVERSION 1,0,6,0
+ FILEVERSION 1,0,7,0
+ PRODUCTVERSION 1,0,7,0
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS 0
  FILEOS VOS_NT_WINDOWS32
@@ -131,10 +136,10 @@ BEGIN
   BEGIN
    VALUE "CompanyName", "Free Island\0"
    VALUE "FileDescription", "浮岛 · Windows 7 原生安装程序\0"
-   VALUE "FileVersion", "1.0.6\0"
-   VALUE "OriginalFilename", "FreeIsland-Win7-Setup-1.0.6.exe\0"
+   VALUE "FileVersion", "1.0.7\0"
+   VALUE "OriginalFilename", "FreeIsland-Win7-Setup-1.0.7.exe\0"
    VALUE "ProductName", "浮岛\0"
-   VALUE "ProductVersion", "1.0.6\0"
+   VALUE "ProductVersion", "1.0.7\0"
   END
  END
  BLOCK "VarFileInfo"

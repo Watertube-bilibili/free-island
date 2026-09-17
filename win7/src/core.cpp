@@ -137,6 +137,7 @@ struct SavedState {
     bool running = false;
     int64_t deadline = 0;
     int64_t paused = 0;
+    int64_t duration = 0;
 };
 
 bool ParseState(const std::string& file, SavedState& state) {
@@ -187,11 +188,14 @@ bool ParseState(const std::string& file, SavedState& state) {
         } else if (key == "islandScale") {
             if (!Number(value, state.settings.islandScale)) state.settings.islandScale = 1.0;
         }
+        else if (key == "activeDotDesktop") { if (!Number(value, state.settings.activeDotDesktop)) state.settings.activeDotDesktop = 36; }
+        else if (key == "activeDotClassroom") { if (!Number(value, state.settings.activeDotClassroom)) state.settings.activeDotClassroom = 48; }
         else if (key == "monitor") { if (!ReadHex(value, state.settings.monitor, 260)) return false; }
         else if (key == "countdownActive") { if (!Bool(value, state.active)) return false; }
         else if (key == "countdownRunning") { if (!Bool(value, state.running)) return false; }
         else if (key == "countdownDeadline") { if (!Number(value, state.deadline)) return false; }
         else if (key == "pausedCountdown") { if (!Number(value, state.paused)) return false; }
+        else if (key == "countdownDuration") { if (!Number(value, state.duration)) return false; }
         else if (key == "reminder") {
             if (state.reminders.size() >= MaximumReminders) return false;
             std::string fields[5];
@@ -387,6 +391,7 @@ void Engine::StartCountdown(int64_t durationMs) {
     if (now > LastDateMs - durationMs) throw std::invalid_argument("Countdown date is out of range.");
     countdownDeadline_ = now + durationMs;
     pausedCountdown_ = durationMs;
+    countdownDuration_ = durationMs;
     countdownActive = countdownRunning = true;
     Save();
 }
@@ -408,6 +413,7 @@ void Engine::PauseCountdown() {
 void Engine::ClearCountdown() {
     countdownActive = countdownRunning = false;
     countdownDeadline_ = pausedCountdown_ = 0;
+    countdownDuration_ = 0;
 }
 
 void Engine::CancelCountdown() { ClearCountdown(); Save(); }
@@ -499,7 +505,7 @@ void Engine::Tick() {
                 Notify(L"关机未执行", L"Windows 未能执行关机：" + std::wstring(detail.begin(), detail.end()), "shutdown", true);
             } catch (...) { Notify(L"关机未执行", L"Windows 未能执行关机。", "shutdown", true); }
         }
-    } else if (left <= 60000 && !shutdownWarned_) {
+    } else if (left <= 10000 && !shutdownWarned_) {
         shutdownWarned_ = true;
         std::wostringstream message;
         message << L"将在 " << (left + 999) / 1000 << L" 秒内关机，点击取消可停止计划。";
@@ -513,6 +519,8 @@ void Engine::NormalizeSettings() {
     if (!std::isfinite(settings.anchor) || settings.anchor < 0 || settings.anchor > 1) settings.anchor = 0.5;
     if (settings.islandDotPercent < 0 || settings.islandDotPercent > 100) settings.islandDotPercent = 20;
     settings.islandDotSize = 3 + (17 * settings.islandDotPercent + 50) / 100;
+    if (settings.activeDotDesktop < 30 || settings.activeDotDesktop > 50) settings.activeDotDesktop = 36;
+    if (settings.activeDotClassroom < 30 || settings.activeDotClassroom > 50) settings.activeDotClassroom = 48;
     if (settings.glassMode < 0 || settings.glassMode > 2) settings.glassMode = 1;
     if (settings.glassRefraction < 0 || settings.glassRefraction > 100) settings.glassRefraction = 50;
     if (settings.glassTransparency < 0 || settings.glassTransparency > 100) settings.glassTransparency = 65;
@@ -537,6 +545,8 @@ void Engine::Save() {
         << "anchor=" << std::setprecision(17) << settings.anchor << '\n'
         << "islandDotSize=" << settings.islandDotSize << '\n'
         << "islandDotPercent=" << settings.islandDotPercent << '\n'
+        << "activeDotDesktop=" << settings.activeDotDesktop << '\n'
+        << "activeDotClassroom=" << settings.activeDotClassroom << '\n'
         << "glassMode=" << settings.glassMode << '\n'
         << "glassRefraction=" << settings.glassRefraction << '\n'
         << "glassTransparency=" << settings.glassTransparency << '\n'
@@ -546,7 +556,8 @@ void Engine::Save() {
         << "countdownActive=" << countdownActive << '\n'
         << "countdownRunning=" << countdownRunning << '\n'
         << "countdownDeadline=" << countdownDeadline_ << '\n'
-        << "pausedCountdown=" << pausedCountdown_ << '\n';
+        << "pausedCountdown=" << pausedCountdown_ << '\n'
+        << "countdownDuration=" << countdownDuration_ << '\n';
     for (size_t i = 0; i < reminders.size(); ++i) {
         const Reminder& reminder = reminders[i];
         output << "reminder=" << reminder.id << '|' << reminder.dueMs << '|' << reminder.daily << '|'
@@ -582,6 +593,8 @@ void Engine::Load() {
             countdownActive = true;
             pausedCountdown_ = state.paused;
         }
+        if (countdownActive) countdownDuration_ = state.duration > 0 && state.duration <= MaximumCountdownMs
+            ? std::max(state.duration, CountdownMs()) : CountdownMs();
     }
 }
 

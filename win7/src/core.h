@@ -33,6 +33,8 @@ struct Settings {
     double anchor = 0.5;
     int islandDotPercent = 20;
     int islandDotSize = 6; // Derived physical pixels, independent of monitor DPI.
+    int activeDotDesktop = 36;
+    int activeDotClassroom = 48;
     int glassMode = 1; // 0 = off, 1 = lite, 2 = water motion (no desktop refraction).
     int glassRefraction = 50; // Curved rim thickness/appearance on Windows 7.
     int glassTransparency = 65;
@@ -76,6 +78,8 @@ public:
 
     int64_t StopwatchMs() const;
     int64_t CountdownMs() const;
+    int64_t CountdownDurationMs() const { return countdownDuration_; }
+    bool ShutdownVisible() const { const int64_t left = shutdownAt - wallClock_(); return shutdownAt && left > 0 && left <= 10000; }
     void ToggleStopwatch();
     void ResetStopwatch();
     void StartCountdown(int64_t durationMs);
@@ -100,6 +104,7 @@ private:
     int64_t stopwatchAccumulated_ = 0;
     int64_t countdownDeadline_ = 0;
     int64_t pausedCountdown_ = 0;
+    int64_t countdownDuration_ = 0;
     int64_t lastTick_ = 0;
     uint64_t lastTickMonotonic_ = 0;
     uint64_t nextId_ = 1;

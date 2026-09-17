@@ -330,7 +330,7 @@ static void RegisterUninstall() {
     if (e != ERROR_SUCCESS) { SetLastError(e); Fail(ErrorText(L"无法创建卸载信息")); }
     try {
         SetRegistryString(h, L"DisplayName", L"浮岛 Win7 · Free Island");
-          SetRegistryString(h, L"DisplayVersion", L"1.0.5");
+          SetRegistryString(h, L"DisplayVersion", L"1.0.6");
         SetRegistryString(h, L"Publisher", L"Free Island");
         SetRegistryString(h, L"InstallLocation", gInstallDir);
         SetRegistryString(h, L"DisplayIcon", Quote(Join(gInstallDir, kAppName)) + L",0");

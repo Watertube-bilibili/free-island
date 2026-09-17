@@ -123,10 +123,10 @@ internal static class MultitaskUiTests
     }
     private static void Geometry(CoreEngine engine, IslandHandleWindow handle, Rect work)
     {
-        foreach (int configured in new[] { 0, 30, 36, 48, 50 })
+        foreach (int configured in new[] { 0, 40, 64, 88, 160 })
         {
             engine.Settings.ActiveIslandSize = configured;
-            int expected = configured == 0 ? engine.Settings.Scene == UsageScene.Classroom ? 48 : 36 : configured;
+            int expected = configured == 0 ? engine.Settings.Scene == UsageScene.Classroom ? 88 : 64 : configured;
             foreach (IslandPlacement placement in new[] { IslandPlacement.Top, IslandPlacement.Left, IslandPlacement.Right })
             {
                 engine.Settings.Placement = placement; handle.ShowAt(work); Pump(15); handle.UpdateLayout();
@@ -208,7 +208,7 @@ internal static class MultitaskUiTests
                 Check(island.IsVisible, "Final ten seconds failed to automatically show shutdown"); CheckRows(island, 1);
                 Check(Find<Button>(island, "TaskPrimary_shutdown").Content.ToString() == "取消关机", "Urgent shutdown lacks cancel action");
                 Click(island, "TaskPrimary_shutdown"); Check(!engine.ShutdownAt.HasValue && !island.IsVisible, "Urgent cancel failed");
-                log.Add("PASS " + label + ": independent actions, notice coexistence, 30/36/48/50 physical px, docking, touch, hidden optics, shrink, final10s shutdown; device scale " + scale.M11.ToString(CultureInfo.InvariantCulture));
+                log.Add("PASS " + label + ": independent actions, notice coexistence, 40/64/88/160 physical px, docking, touch, hidden optics, shrink, final10s shutdown; device scale " + scale.M11.ToString(CultureInfo.InvariantCulture));
             }
             finally { if (handle != null) handle.Close(); if (island != null) island.Close(); }
         }

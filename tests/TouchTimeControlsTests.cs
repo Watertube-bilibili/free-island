@@ -72,7 +72,7 @@ internal static class TouchTimeControlsTests
                 Click(panel, "ConfirmShutdown"); Check(engine.ShutdownAt == DateTime.Today.AddDays(1).AddHours(18).AddMinutes(45), "Explicit confirmation schedules chosen date/time in safe mode"); engine.CancelShutdown();
                 Capture(panel, "classroom-shutdown-touch");
                 panel.Navigate("settings"); Pump(); var size = Find<Slider>(panel, "ActiveIslandSizeSlider"); var automatic = Find<CheckBox>(panel, "ActiveIslandSizeAuto");
-                Check(size != null && size.Minimum == 30 && size.Maximum == 50 && size.Value == 48 && !size.IsEnabled, "Classroom automatic task-ball size"); automatic.IsChecked = false; size.Value = 42; Click(panel, "ApplyIslandSize"); Check(engine.Settings.ActiveIslandSize == 42, "Custom task-ball diameter saves"); Click(panel, "ResetIslandSize"); Check(engine.Settings.ActiveIslandSize == 0 && size.Value == 48 && !size.IsEnabled, "Default size restores automatic scene sizing");
+                Check(size != null && size.Minimum == 40 && size.Maximum == 160 && size.Value == 88 && !size.IsEnabled, "Classroom automatic task-ball size"); automatic.IsChecked = false; size.Value = 110; Click(panel, "ApplyIslandSize"); Check(engine.Settings.ActiveIslandSize == 110, "Custom task-ball diameter saves"); Click(panel, "ResetIslandSize"); Check(engine.Settings.ActiveIslandSize == 0 && size.Value == 88 && !size.IsEnabled, "Default size restores automatic scene sizing");
                 panel.Navigate("countdown"); panel.Width = 900; panel.Height = 590; Pump();
                 var start = Find<Button>(panel, "StartCustomCountdown"); var position = start.TranslatePoint(new Point(), panel); Check(position.Y >= 0 && position.Y + start.ActualHeight <= panel.ActualHeight, "Start remains reachable at minimum classroom size"); Capture(panel, "classroom-minimum-countdown");
             }
@@ -84,7 +84,7 @@ internal static class TouchTimeControlsTests
         using (var engine = new CoreEngine(Path.Combine(stateRoot, "desktop"), true))
         {
             engine.Settings.Scene = UsageScene.Desktop; var panel = new ControlWindow(engine, delegate { }, delegate { }, delegate { });
-            try { panel.Show(); panel.Navigate("countdown"); Pump(); Check(Count<TextBox>(panel) == 3 && Find<Slider>(panel, "CountdownHours") == null, "Desktop duration text inputs preserved"); Capture(panel, "desktop-countdown"); panel.Navigate("shutdown"); Pump(); Check(Count<TextBox>(panel) == 2, "Desktop date and time inputs preserved"); panel.Navigate("settings"); Pump(); Check(Find<Slider>(panel, "ActiveIslandSizeSlider").Value == 36, "Desktop automatic task-ball size"); }
+            try { panel.Show(); panel.Navigate("countdown"); Pump(); Check(Count<TextBox>(panel) == 3 && Find<Slider>(panel, "CountdownHours") == null, "Desktop duration text inputs preserved"); Capture(panel, "desktop-countdown"); panel.Navigate("shutdown"); Pump(); Check(Count<TextBox>(panel) == 2, "Desktop date and time inputs preserved"); panel.Navigate("settings"); Pump(); Check(Find<Slider>(panel, "ActiveIslandSizeSlider").Value == 64, "Desktop automatic task-ball size"); }
             finally { panel.AllowClose = true; panel.Close(); }
         }
     }

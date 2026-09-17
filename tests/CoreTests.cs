@@ -350,13 +350,14 @@ internal static class CoreTests
         using (CoreEngine engine = Engine(path, delegate { return now; }))
         {
             Check(engine.Settings.ActiveIslandSize == 0, "Old settings select automatic active size");
-            foreach (int invalid in new[] { -1, 1, 29, 51, int.MaxValue })
+            Check(engine.Settings.AutoUpdate, "Old settings enable automatic updates by default");
+            foreach (int invalid in new[] { -1, 1, 39, 161, int.MaxValue })
             {
                 engine.Settings.ActiveIslandSize = invalid;
                 engine.SaveSettings();
                 Check(engine.Settings.ActiveIslandSize == 0, "Invalid active size returns to automatic");
             }
-            foreach (int size in new[] { 30, 40, 50 })
+            foreach (int size in new[] { 40, 88, 160 })
             {
                 engine.Settings.ActiveIslandSize = size;
                 engine.SaveSettings();
@@ -364,10 +365,17 @@ internal static class CoreTests
             }
         }
         using (CoreEngine engine = Engine(path, delegate { return now; }))
-            Check(engine.Settings.ActiveIslandSize == 50 && !engine.Settings.AutoStart, "Custom active size persists independently");
+            Check(engine.Settings.ActiveIslandSize == 160 && !engine.Settings.AutoStart, "Custom active size persists independently");
         File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"Settings\":{\"ActiveIslandSize\":999}}");
         using (CoreEngine engine = Engine(path, delegate { return now; }))
             Check(engine.Settings.ActiveIslandSize == 0, "Invalid loaded active size normalizes");
+        foreach (int oldSize in new[] { 30, 36, 40, 48, 50 })
+        {
+            File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"Settings\":{\"ActiveIslandSize\":" + oldSize + ",\"IslandDotPercent\":20,\"AutoUpdate\":false}}");
+            using (CoreEngine engine = Engine(path, delegate { return now; })) Check(engine.Settings.ActiveIslandSize == 0 && engine.Settings.IslandDotPercent == 20 && !engine.Settings.AutoUpdate, "Old small task ball migrates independently from idle dot and update preference");
+        }
+        File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"Settings\":{\"ActiveIslandSize\":40,\"ActiveIslandSizeVersion\":2,\"AutoUpdate\":false}}");
+        using (CoreEngine engine = Engine(path, delegate { return now; })) { Check(engine.Settings.ActiveIslandSize == 40 && !engine.Settings.AutoUpdate, "New intentional small selection and disabled updater persist"); engine.SaveSettings(); }
     }
 
     private static void IslandTaskSnapshots()

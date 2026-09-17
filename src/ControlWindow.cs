@@ -238,16 +238,82 @@ namespace FreeIsland
 
         private void BuildShutdown()
         {
-            Heading("定时关机", "明确预约时间；关机前会提醒，也可随时取消。"); var page = Page(); var status = new StackPanel(); var due = T("尚未预约关机", classroom ? 27 : 23, ink, FontWeights.SemiBold); status.Children.Add(due); var remaining = T("选择下方时间，确认后预约才会生效。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 10, 0, 0)); status.Children.Add(remaining); var cancel = Btn("取消关机预约", delegate { engine.CancelShutdown(); Notify("已取消关机预约。"); }, false, new Thickness(0, 18, 0, 0)); cancel.HorizontalAlignment = HorizontalAlignment.Left; status.Children.Add(cancel); page.Children.Add(Surface(status, classroom ? 25 : 22)); page.Children.Add(SectionTitle("预约时间"));
+            Heading("定时关机", "预约一次，或像闹钟一样按星期重复；确认后生效。"); var page = Page(); var status = new StackPanel(); var due = T("尚未预约关机", classroom ? 27 : 23, ink, FontWeights.SemiBold); due.Name = "ShutdownPlanStatus"; status.Children.Add(due); var remaining = T("选择下方时间，确认后预约才会生效。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 10, 0, 0)); remaining.Name = "ShutdownPlanDetail"; status.Children.Add(remaining); var cancel = Btn("取消关机预约", delegate { bool repeated = engine.ShutdownRecurringEnabled; engine.CancelShutdown(); Notify(repeated ? "重复关机已停用，所有未来关机安排已取消。" : "已取消关机预约。"); }, false, new Thickness(0, 18, 0, 0)); cancel.Name = "CancelShutdown"; cancel.HorizontalAlignment = HorizontalAlignment.Left; status.Children.Add(cancel); page.Children.Add(Surface(status, classroom ? 25 : 22)); page.Children.Add(SectionTitle("预约方式"));
+            bool repeatSelected = engine.ShutdownRecurringEnabled;
+            var onceFields = new StackPanel { Name = "ShutdownOnceFields" };
+            var repeatFields = new StackPanel { Name = "ShutdownRepeatFields" };
+            var modes = new UniformGrid { Columns = 2, Margin = new Thickness(-5, 0, -5, 18) }; Action updateMode = delegate { };
+            var onceMode = Btn("仅这一次", delegate { repeatSelected = false; updateMode(); }, false, new Thickness(5, 0, 5, 0)); onceMode.Name = "ShutdownModeOnce";
+            var repeatMode = Btn("按星期重复", delegate { repeatSelected = true; updateMode(); }, false, new Thickness(5, 0, 5, 0)); repeatMode.Name = "ShutdownModeRepeat";
+            modes.Children.Add(onceMode); modes.Children.Add(repeatMode); page.Children.Add(modes); page.Children.Add(onceFields); page.Children.Add(repeatFields);
             var date = Input(DateTime.Now.AddHours(1).ToString("yyyy-MM-dd"), 150); var time = Input(DateTime.Now.AddHours(1).ToString("HH:mm"), 95); var presets = new WrapPanel { Margin = new Thickness(0, 0, 0, 14) };
             Func<DateTime> selectedTime = null; Action<DateTime> setTime = null; FrameworkElement touchTime = classroom ? TouchDateTime("Shutdown", DateTime.Now.AddHours(1), out selectedTime, out setTime) : null;
-            foreach (int number in new[] { 30, 60, 120, 180 }) { int delay = number; var preset = Btn(delay < 60 ? "30 分钟后" : (delay / 60) + " 小时后", delegate { var at = DateTime.Now.AddMinutes(delay); if (classroom) setTime(at); else { date.Text = at.ToString("yyyy-MM-dd"); time.Text = at.ToString("HH:mm"); } }, false, new Thickness(0, 0, 10, 6)); preset.Name = "ShutdownPreset" + delay; presets.Children.Add(preset); } page.Children.Add(presets);
-            if (classroom) page.Children.Add(touchTime); else { var fields = new WrapPanel(); fields.Children.Add(Field("日期", date, 14)); fields.Children.Add(Field("时间", time)); page.Children.Add(fields); }
+            foreach (int number in new[] { 30, 60, 120, 180 }) { int delay = number; var preset = Btn(delay < 60 ? "30 分钟后" : (delay / 60) + " 小时后", delegate { var at = DateTime.Now.AddMinutes(delay); if (classroom) setTime(at); else { date.Text = at.ToString("yyyy-MM-dd"); time.Text = at.ToString("HH:mm"); } }, false, new Thickness(0, 0, 10, 6)); preset.Name = "ShutdownPreset" + delay; presets.Children.Add(preset); } onceFields.Children.Add(presets);
+            if (classroom) onceFields.Children.Add(touchTime); else { var fields = new WrapPanel(); fields.Children.Add(Field("日期", date, 14)); fields.Children.Add(Field("时间", time)); onceFields.Children.Add(fields); }
+            var days = new List<CheckBox>(); Action refreshRepeat = delegate { }; var shortcuts = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+            Action<int> chooseDays = delegate(int mask) { for (int i = 0; i < days.Count; i++) days[i].IsChecked = (mask & (1 << i)) != 0; refreshRepeat(); };
+            var daily = Btn("每天", delegate { chooseDays(127); }); daily.Name = "ShutdownRepeatDaily"; shortcuts.Children.Add(daily);
+            var weekdays = Btn("周一至周五", delegate { chooseDays(31); }, false, new Thickness(10, 0, 0, 0)); weekdays.Name = "ShutdownRepeatWorkdays"; shortcuts.Children.Add(weekdays); repeatFields.Children.Add(shortcuts);
+            var dayGrid = new UniformGrid { Columns = 7, Margin = new Thickness(0, 0, 0, 12) }; string[] dayNames = { "周一", "周二", "周三", "周四", "周五", "周六", "周日" };
+            int initialDays = engine.ShutdownRepeatDays > 0 ? engine.ShutdownRepeatDays : 31;
+            for (int i = 0; i < 7; i++) { var day = Check(dayNames[i], (initialDays & (1 << i)) != 0); day.Name = "ShutdownRepeatDay" + i; day.Checked += delegate { refreshRepeat(); }; day.Unchecked += delegate { refreshRepeat(); }; days.Add(day); dayGrid.Children.Add(day); }
+            repeatFields.Children.Add(dayGrid);
+            int initialHour = engine.ShutdownRecurringEnabled ? engine.ShutdownRepeatHour : 18, initialMinute = engine.ShutdownRecurringEnabled ? engine.ShutdownRepeatMinute : 0;
+            var repeatHours = TimeSlider("ShutdownRepeatHours", "重复关机小时", initialHour, 23); var repeatMinutes = TimeSlider("ShutdownRepeatMinutes", "重复关机分钟", initialMinute, 59);
+            var repeatClock = Input(initialHour.ToString("00") + ":" + initialMinute.ToString("00"), 110); repeatClock.Name = "ShutdownRepeatTimeInput";
+            if (classroom) { repeatFields.Children.Add(TouchNumber("小时", repeatHours)); repeatFields.Children.Add(TouchNumber("分钟", repeatMinutes)); } else repeatFields.Children.Add(Field("关机时间（24 小时制）", repeatClock));
+            Func<int> selectedDays = delegate { int mask = 0; for (int i = 0; i < days.Count; i++) if (days[i].IsChecked == true) mask |= 1 << i; return mask; };
+            Func<Tuple<int, int>> repeatTime = delegate
+            {
+                if (classroom) return Tuple.Create((int)repeatHours.Value, (int)repeatMinutes.Value);
+                DateTime parsed; return DateTime.TryParseExact(repeatClock.Text.Trim(), new[] { "HH:mm", "H:mm" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed) ? Tuple.Create(parsed.Hour, parsed.Minute) : null;
+            };
+            var repeatSummary = T("", BodySize, accent, FontWeights.Medium, new Thickness(0, 8, 0, 0)); repeatSummary.Name = "ShutdownRepeatSummary"; repeatFields.Children.Add(repeatSummary);
+            repeatFields.Children.Add(T("启用后会保存计划，重启浮岛后继续生效；停用将取消所有未来关机。错过的时间不会补执行。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 8, 0, 0)));
+            refreshRepeat = delegate
+            {
+                int mask = selectedDays(); var clockValue = repeatTime();
+                daily.Background = mask == 127 ? selected : Brushes.White; daily.BorderBrush = mask == 127 ? accent : line;
+                weekdays.Background = mask == 31 ? selected : Brushes.White; weekdays.BorderBrush = mask == 31 ? accent : line;
+                repeatSummary.Text = mask == 0 ? "请至少选择一天。" : clockValue == null ? "时间请输入 18:00 这样的格式。" : ShutdownDaysLabel(mask) + "  " + clockValue.Item1.ToString("00") + ":" + clockValue.Item2.ToString("00") + " 关机";
+            };
+            repeatHours.ValueChanged += delegate { refreshRepeat(); }; repeatMinutes.ValueChanged += delegate { refreshRepeat(); }; repeatClock.TextChanged += delegate { refreshRepeat(); }; refreshRepeat();
             var warning = new StackPanel { Margin = new Thickness(0, 0, classroom ? 24 : 20, 0) }; warning.Children.Add(T("预约前请保存正在进行的工作。", BodySize, B("#80540A"), FontWeights.Medium)); warning.Children.Add(T("最后 10 秒才在灵动岛显示，可随时取消。不会强制关闭应用；未保存的工作可能阻止关机。", SmallSize, B("#80540A"), FontWeights.Normal, new Thickness(0, 7, 0, 0))); if (engine.IsSafeMode) warning.Children.Add(T("安全预览：只演示预约，不执行系统关机。", SmallSize, B("#80540A"), FontWeights.Medium, new Thickness(0, 8, 0, 0)));
-            var confirm = Btn("确认预约关机", delegate { DateTime at; if (classroom) at = selectedTime(); else if (!ParseDateTime(date.Text, time.Text, out at)) { Notify("日期请输入 2026-09-10，时间请输入 23:30 这样的格式。", true); return; } if (at <= DateTime.Now.AddMinutes(1)) { Notify("请预约至少 1 分钟之后的关机时间。", true); return; } engine.ScheduleShutdown(at); Notify(engine.IsSafeMode ? "已创建安全预览预约，不会执行关机。" : "关机已预约，可随时取消。"); }, true); confirm.Name = "ConfirmShutdown"; confirm.VerticalAlignment = VerticalAlignment.Center;
+            var confirm = Btn("确认预约关机", delegate
+            {
+                if (repeatSelected)
+                {
+                    int mask = selectedDays(); var clockValue = repeatTime();
+                    if (mask == 0) { Notify("请至少选择一个星期，再启用重复关机。", true); return; }
+                    if (clockValue == null) { Notify("时间请输入 18:00 这样的格式。", true); repeatClock.Focus(); return; }
+                    engine.SetRecurringShutdown(clockValue.Item1, clockValue.Item2, mask);
+                    Notify(engine.IsSafeMode ? "重复计划已保存为安全预览，不会执行关机。" : "重复关机已启用，可随时停用全部安排。"); return;
+                }
+                DateTime at; if (classroom) at = selectedTime(); else if (!ParseDateTime(date.Text, time.Text, out at)) { Notify("日期请输入 2026-09-10，时间请输入 23:30 这样的格式。", true); return; } if (at <= DateTime.Now.AddMinutes(1)) { Notify("请预约至少 1 分钟之后的关机时间。", true); return; } engine.ScheduleShutdown(at); Notify(engine.IsSafeMode ? "已创建安全预览预约，不会执行关机。" : "关机已预约，可随时取消。");
+            }, true); confirm.Name = "ConfirmShutdown"; confirm.VerticalAlignment = VerticalAlignment.Center;
+            updateMode = delegate
+            {
+                onceFields.Visibility = repeatSelected ? Visibility.Collapsed : Visibility.Visible; repeatFields.Visibility = repeatSelected ? Visibility.Visible : Visibility.Collapsed;
+                onceMode.Background = repeatSelected ? Brushes.White : selected; onceMode.BorderBrush = repeatSelected ? line : accent; repeatMode.Background = repeatSelected ? selected : Brushes.White; repeatMode.BorderBrush = repeatSelected ? accent : line;
+                confirm.Content = repeatSelected ? "启用重复关机" : "确认预约关机"; System.Windows.Automation.AutomationProperties.SetName(confirm, repeatSelected ? "启用重复关机" : "确认预约关机");
+            }; updateMode();
             var confirmation = new Grid(); confirmation.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); confirmation.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); confirmation.Children.Add(warning); Grid.SetColumn(confirm, 1); confirmation.Children.Add(confirm);
             ReserveActions(new Border { Child = confirmation, Background = B("#FFF5E4"), BorderBrush = B("#F0D6A4"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(classroom ? 20 : 17) });
-            updatePage = delegate { due.Text = engine.ShutdownAt.HasValue ? engine.ShutdownAt.Value.ToString("MM月dd日  HH:mm") + " 关机" : "尚未预约关机"; remaining.Text = engine.ShutdownAt.HasValue ? "距离预约关机还有 " + FormatTime(engine.ShutdownAt.Value - DateTime.Now) : "选择下方时间，确认后预约才会生效。"; cancel.Visibility = engine.ShutdownAt.HasValue ? Visibility.Visible : Visibility.Collapsed; };
+            updatePage = delegate
+            {
+                due.Text = engine.ShutdownAt.HasValue ? (engine.ShutdownRecurringEnabled ? "下次 " : "") + engine.ShutdownAt.Value.ToString("MM月dd日  HH:mm") + " 关机" : "尚未预约关机";
+                remaining.Text = engine.ShutdownRecurringEnabled ? ShutdownDaysLabel(engine.ShutdownRepeatDays) + "  " + engine.ShutdownRepeatHour.ToString("00") + ":" + engine.ShutdownRepeatMinute.ToString("00") + " · 已启用重复计划" : engine.ShutdownAt.HasValue ? "距离预约关机还有 " + FormatTime(engine.ShutdownAt.Value - DateTime.Now) : "选择下方时间，确认后预约才会生效。";
+                cancel.Visibility = engine.ShutdownAt.HasValue || engine.ShutdownRecurringEnabled ? Visibility.Visible : Visibility.Collapsed; cancel.Content = engine.ShutdownRecurringEnabled ? "停用重复关机" : "取消关机预约";
+                System.Windows.Automation.AutomationProperties.SetName(cancel, engine.ShutdownRecurringEnabled ? "停用重复关机" : "取消关机预约");
+            };
+        }
+
+        private static string ShutdownDaysLabel(int mask)
+        {
+            if (mask == 127) return "每天"; if (mask == 31) return "周一至周五";
+            string[] names = { "一", "二", "三", "四", "五", "六", "日" }; var selected = new List<string>();
+            for (int i = 0; i < 7; i++) if ((mask & (1 << i)) != 0) selected.Add(names[i]);
+            return "每周" + string.Join("、", selected.ToArray());
         }
 
         private void BuildSettings()
@@ -350,7 +416,7 @@ namespace FreeIsland
         private void AddUpdateSettings(StackPanel page)
         {
             var updates = new StackPanel();
-            updates.Children.Add(Setting("自动更新", "从官方 GitHub 下载并校验新版本；计时和关机预约结束、控制中心收起后安装。", engine.Settings.AutoUpdate, delegate(bool value) { engine.Settings.AutoUpdate = value; engine.SaveSettings(); if (updater != null) updater.PreferencesChanged(); }));
+            updates.Children.Add(Setting("自动更新", "从官方 GitHub 下载并校验；无计时或单次关机预约、重复关机距离超过 5 分钟且窗口收起时安装。", engine.Settings.AutoUpdate, delegate(bool value) { engine.Settings.AutoUpdate = value; engine.SaveSettings(); if (updater != null) updater.PreferencesChanged(); }));
             updates.Children.Add(T("当前版本 " + (updater == null ? System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3) : updater.CurrentVersion) + " · 每 6 小时检查，安装后静默重启。便携版需手动安装。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 10, 0, 0)));
             var status = T("", SmallSize, ink, FontWeights.Medium, new Thickness(0, 12, 0, 10)); status.Name = "UpdateStatus"; updates.Children.Add(status);
             var progress = new ProgressBar { Name = "UpdateProgress", Minimum = 0, Maximum = 100, Height = 8, Foreground = accent, Background = line, Margin = new Thickness(0, 0, 0, 12) }; updates.Children.Add(progress);

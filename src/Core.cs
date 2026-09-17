@@ -38,6 +38,10 @@ namespace FreeIsland
         [DataMember] public int ActiveIslandSize { get; set; }
         [DataMember] public int ActiveIslandSizeVersion { get; set; }
         [DataMember] public bool AutoUpdate { get; set; }
+        [DataMember] public bool ShutdownRecurringEnabled { get; set; }
+        [DataMember] public int ShutdownRepeatDays { get; set; }
+        [DataMember] public int ShutdownRepeatHour { get; set; }
+        [DataMember] public int ShutdownRepeatMinute { get; set; }
         private int islandDotPercent;
         private bool hasSavedDotPercent;
         [DataMember] public int IslandDotPercent
@@ -98,6 +102,10 @@ namespace FreeIsland
             ActiveIslandSize = 0;
             ActiveIslandSizeVersion = 2;
             AutoUpdate = true;
+            ShutdownRecurringEnabled = false;
+            ShutdownRepeatDays = 31;
+            ShutdownRepeatHour = 17;
+            ShutdownRepeatMinute = 0;
             GlassMode = 1;
             GlassRefraction = 50;
             GlassTransparency = 65;
@@ -222,6 +230,51 @@ namespace FreeIsland
         }
         public DateTime? ShutdownAt { get { return shutdownUtc.HasValue ? shutdownUtc.Value.ToLocalTime() : (DateTime?)null; } }
         public TimeSpan? ShutdownRemaining { get { return shutdownUtc.HasValue ? Positive(shutdownUtc.Value - UtcNow()) : (TimeSpan?)null; } }
+        public bool ShutdownRecurringEnabled { get { return Settings.ShutdownRecurringEnabled; } }
+        public int ShutdownRepeatDays { get { return Settings.ShutdownRepeatDays; } }
+        public int ShutdownRepeatHour { get { return Settings.ShutdownRepeatHour; } }
+        public int ShutdownRepeatMinute { get { return Settings.ShutdownRepeatMinute; } }
+        public bool ShutdownBlocksAutoUpdate { get { return shutdownUtc.HasValue && (!ShutdownRecurringEnabled || shutdownUtc.Value - UtcNow() <= TimeSpan.FromMinutes(5)); } }
+
+        public static DateTime NextRecurringShutdownUtc(DateTime nowUtc, int hour, int minute, int weekdayMask, TimeZoneInfo zone)
+        {
+            if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || weekdayMask < 1 || weekdayMask > 127)
+                throw new ArgumentException("请选择有效的关机时间和至少一个星期。");
+            if (zone == null) throw new ArgumentNullException("zone");
+            nowUtc = ToUtc(nowUtc);
+            DateTime today = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, zone).Date;
+            for (int day = 0; day <= 14; day++)
+            {
+                DateTime candidate = DateTime.SpecifyKind(today.AddDays(day).AddHours(hour).AddMinutes(minute), DateTimeKind.Unspecified);
+                int weekday = ((int)candidate.DayOfWeek + 6) % 7;
+                if ((weekdayMask & (1 << weekday)) == 0 || zone.IsInvalidTime(candidate)) continue;
+                DateTime utc;
+                if (zone.IsAmbiguousTime(candidate))
+                {
+                    TimeSpan[] offsets = zone.GetAmbiguousTimeOffsets(candidate);
+                    TimeSpan firstOffset = offsets[0] > offsets[1] ? offsets[0] : offsets[1];
+                    utc = DateTime.SpecifyKind(candidate - firstOffset, DateTimeKind.Utc);
+                }
+                else utc = TimeZoneInfo.ConvertTimeToUtc(candidate, zone);
+                if (utc > nowUtc) return utc;
+            }
+            throw new InvalidOperationException("无法计算下次重复关机时间。");
+        }
+        private void ArmRecurringShutdown(DateTime now)
+        {
+            shutdownWarningSent = false;
+            shutdownUtc = NextRecurringShutdownUtc(now.AddSeconds(10).AddTicks(-1), ShutdownRepeatHour, ShutdownRepeatMinute, ShutdownRepeatDays, TimeZoneInfo.Local);
+        }
+        public void SetRecurringShutdown(int hour, int minute, int weekdayMask)
+        {
+            EnsureNotDisposed();
+            DateTime now = UtcNow();
+            DateTime next = NextRecurringShutdownUtc(now.AddSeconds(10).AddTicks(-1), hour, minute, weekdayMask, TimeZoneInfo.Local);
+            Settings.ShutdownRecurringEnabled = true; Settings.ShutdownRepeatHour = hour;
+            Settings.ShutdownRepeatMinute = minute; Settings.ShutdownRepeatDays = weekdayMask;
+            shutdownUtc = next; shutdownWarningSent = false; lastTickUtc = now;
+            SaveState(); OnChanged();
+        }
 
         public IList<IslandTaskInfo> GetIslandTasks()
         {
@@ -347,9 +400,11 @@ namespace FreeIsland
             EnsureNotDisposed();
             DateTime due = ToUtc(localDue);
             if (due <= UtcNow()) throw new ArgumentException("请选择未来的关机时间。", "localDue");
+            Settings.ShutdownRecurringEnabled = false;
             shutdownUtc = due;
             shutdownWarningSent = false;
             lastTickUtc = UtcNow();
+            SaveState();
             OnChanged();
         }
 
@@ -358,6 +413,8 @@ namespace FreeIsland
             EnsureNotDisposed();
             shutdownUtc = null;
             shutdownWarningSent = false;
+            Settings.ShutdownRecurringEnabled = false;
+            SaveState();
             OnChanged();
         }
 
@@ -407,18 +464,26 @@ namespace FreeIsland
             if (shutdownUtc.HasValue)
             {
                 TimeSpan left = shutdownUtc.Value - now;
+                if (ShutdownRecurringEnabled && left > TimeSpan.Zero && left < TimeSpan.FromSeconds(10) && gap > TimeSpan.FromSeconds(2))
+                {
+                    ArmRecurringShutdown(now); SaveState();
+                    Publish(NewNotice("已跳过本次关机", "未能完整预留最后 10 秒提醒，本次已跳过；重复计划继续保留。", "shutdown", true));
+                    OnChanged(); return;
+                }
                 if (left <= TimeSpan.Zero)
                 {
                     bool wasWarned = shutdownWarningSent;
+                    bool repeating = ShutdownRecurringEnabled;
                     shutdownUtc = null;
                     shutdownWarningSent = false;
+                    if (repeating) { ArmRecurringShutdown(now); SaveState(); }
                     if (gap > TimeSpan.FromMinutes(2))
                     {
-                        Publish(NewNotice("已取消过期关机", "电脑休眠或暂停期间错过了关机时间，计划已取消。", "shutdown", true));
+                        Publish(NewNotice(repeating ? "已跳过本次关机" : "已取消过期关机", repeating ? "电脑休眠或暂停期间错过了关机时间，本次已跳过；重复计划继续保留。" : "电脑休眠或暂停期间错过了关机时间，计划已取消。", "shutdown", true));
                     }
                     else if (!wasWarned)
                     {
-                        Publish(NewNotice("已取消未预警关机", "关机时间已过，未能提前显示提醒，计划已取消。", "shutdown", true));
+                        Publish(NewNotice(repeating ? "已跳过本次关机" : "已取消未预警关机", repeating ? "本次未能提前显示关机提醒，已跳过；重复计划继续保留。" : "关机时间已过，未能提前显示提醒，计划已取消。", "shutdown", true));
                     }
                     else if (IsSafeMode)
                     {
@@ -517,6 +582,7 @@ namespace FreeIsland
             }
             Settings = state.Settings ?? new AppSettings();
             NormalizeSettings();
+            if (ShutdownRecurringEnabled) ArmRecurringShutdown(UtcNow());
             if (state.Reminders != null)
             {
                 HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
@@ -580,6 +646,11 @@ namespace FreeIsland
 
         private void NormalizeSettings()
         {
+            if (Settings.ShutdownRepeatHour < 0 || Settings.ShutdownRepeatHour > 23 || Settings.ShutdownRepeatMinute < 0 || Settings.ShutdownRepeatMinute > 59 || Settings.ShutdownRepeatDays < 1 || Settings.ShutdownRepeatDays > 127)
+            {
+                Settings.ShutdownRecurringEnabled = false; Settings.ShutdownRepeatHour = 17;
+                Settings.ShutdownRepeatMinute = 0; Settings.ShutdownRepeatDays = 31;
+            }
             if (!Enum.IsDefined(typeof(IslandPlacement), Settings.Placement)) Settings.Placement = IslandPlacement.Top;
             if (!Enum.IsDefined(typeof(UsageScene), Settings.Scene)) Settings.Scene = UsageScene.Classroom;
             if (double.IsNaN(Settings.IslandAnchor) || double.IsInfinity(Settings.IslandAnchor) || Settings.IslandAnchor < 0 || Settings.IslandAnchor > 1)

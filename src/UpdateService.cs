@@ -243,7 +243,7 @@ namespace FreeIsland
         public bool HasDownload { get { return readyPath != null && !IsBusy; } }
         public int Progress { get { return package == null || package.Size <= 0 ? 0 : Math.Max(0, Math.Min(100, (int)(Interlocked.Read(ref received) * 100 / package.Size))); } }
         public string CurrentVersion { get { return currentVersion.ToString(3); } }
-        public bool HasActiveWork { get { return engine.StopwatchActive || engine.CountdownActive || engine.ShutdownAt.HasValue; } }
+        public bool HasActiveWork { get { return engine.StopwatchActive || engine.CountdownActive || engine.ShutdownBlocksAutoUpdate; } }
 
         public UpdateService(CoreEngine engine, Func<bool> panelVisible, Action exit)
             : this(engine, engine.IsSafeMode, panelVisible, FindInstalledDirectory, StartInstaller, exit, new GitHubUpdateTransport(),
@@ -308,7 +308,7 @@ namespace FreeIsland
         }
         private string ReadyStatus(UpdatePackage found)
         {
-            return string.IsNullOrEmpty(installedDirectory()) ? "已下载 " + found.Version + "。当前为便携运行，请手动安装。" : elevated() ? "已下载 " + found.Version + "。当前以管理员运行，请手动安装更新。" : found.Version == failedVersion ? "已重新下载，请点击手动安装；此前失败的版本不会自动重试。" : engine.Settings.AutoUpdate ? "已下载 " + found.Version + "，等待任务结束并收起控制中心后自动安装。" : "已下载 " + found.Version + "，可手动安装。";
+            return string.IsNullOrEmpty(installedDirectory()) ? "已下载 " + found.Version + "。当前为便携运行，请手动安装。" : elevated() ? "已下载 " + found.Version + "。当前以管理员运行，请手动安装更新。" : found.Version == failedVersion ? "已重新下载，请点击手动安装；此前失败的版本不会自动重试。" : engine.Settings.AutoUpdate ? "已下载 " + found.Version + "，等待空闲且收起窗口后自动安装；重复关机前 5 分钟暂停更新。" : "已下载 " + found.Version + "，可手动安装。";
         }
         private void TrimCache(string keep)
         {
@@ -331,7 +331,7 @@ namespace FreeIsland
         private void Apply(bool manual)
         {
             if (disposed || disabled || !HasDownload) return;
-            if (HasActiveWork) { Status = "计时或关机预约尚未结束，更新已保留。请结束任务后安装。"; return; }
+            if (HasActiveWork) { Status = "计时、单次关机预约或临近的重复关机仍在进行，更新已保留。请稍后安装。"; return; }
             if (!manual && (panelVisible() || !engine.Settings.AutoUpdate || elevated() || package.Version == failedVersion || applyAttempted)) return;
             string directory = installedDirectory();
             if (string.IsNullOrEmpty(directory) && !manual) { Status = "便携运行：更新已下载，点击「手动安装更新」开始安装。"; return; }
@@ -340,7 +340,7 @@ namespace FreeIsland
                 // Verify again immediately before handing control to a separate process.
                 if (!UpdateRules.VerifyFile(readyPath, package) || !installerVersion(readyPath, package.Version)) { readyPath = null; throw new InvalidDataException("下载文件已改变，拒绝启动。请重新检查更新。"); }
                 applyAttempted = true;
-                bool automaticInstaller = !string.IsNullOrEmpty(directory) && !elevated();
+                bool automaticInstaller = !string.IsNullOrEmpty(directory) && !elevated() && !(manual && package.Version == failedVersion);
                 string arguments = automaticInstaller ? "--auto-update \"" + directory + "\"" : "";
                 if (!launch(readyPath, arguments)) throw new IOException("安装器未能启动。");
                 Status = "安装器已启动。";

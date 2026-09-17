@@ -188,8 +188,14 @@ bool ParseState(const std::string& file, SavedState& state) {
         } else if (key == "islandScale") {
             if (!Number(value, state.settings.islandScale)) state.settings.islandScale = 1.0;
         }
-        else if (key == "activeDotDesktop") { if (!Number(value, state.settings.activeDotDesktop)) state.settings.activeDotDesktop = 36; }
-        else if (key == "activeDotClassroom") { if (!Number(value, state.settings.activeDotClassroom)) state.settings.activeDotClassroom = 48; }
+        else if (key == "activeDotDesktop") { if (!Number(value, state.settings.activeDotDesktop)) state.settings.activeDotDesktop = 64; }
+        else if (key == "activeDotClassroom") { if (!Number(value, state.settings.activeDotClassroom)) state.settings.activeDotClassroom = 88; }
+        else if (key == "activeDotSettingsVersion") { if (!Number(value, state.settings.activeDotSettingsVersion)) state.settings.activeDotSettingsVersion = 0; }
+        else if (key == "automaticUpdates") { if (!Bool(value, state.settings.automaticUpdates)) state.settings.automaticUpdates = true; }
+        else if (key == "shutdownRecurringEnabled") { if (!Bool(value, state.settings.shutdownRecurringEnabled)) state.settings.shutdownRecurringEnabled = false; }
+        else if (key == "shutdownRepeatDays") { if (!Number(value, state.settings.shutdownRepeatDays)) state.settings.shutdownRepeatDays = 0; }
+        else if (key == "shutdownRepeatHour") { if (!Number(value, state.settings.shutdownRepeatHour)) state.settings.shutdownRepeatHour = -1; }
+        else if (key == "shutdownRepeatMinute") { if (!Number(value, state.settings.shutdownRepeatMinute)) state.settings.shutdownRepeatMinute = -1; }
         else if (key == "monitor") { if (!ReadHex(value, state.settings.monitor, 260)) return false; }
         else if (key == "countdownActive") { if (!Bool(value, state.active)) return false; }
         else if (key == "countdownRunning") { if (!Bool(value, state.running)) return false; }
@@ -220,6 +226,11 @@ bool ParseState(const std::string& file, SavedState& state) {
         const int oldSize = state.settings.islandDotSize;
         state.settings.islandDotPercent = keys.count("islandDotSize") && oldSize >= 3 && oldSize <= 20 && oldSize != 4
             ? ((oldSize - 3) * 100 + 8) / 17 : 20;
+    }
+    if (!keys.count("activeDotSettingsVersion") || state.settings.activeDotSettingsVersion < 2) {
+        state.settings.activeDotDesktop = 64;
+        state.settings.activeDotClassroom = 88;
+        state.settings.activeDotSettingsVersion = 2;
     }
     return true;
 }
@@ -343,6 +354,33 @@ int64_t LocalToMs(const SYSTEMTIME& local) {
     return AsUtcMs(utc);
 }
 
+int64_t NextRecurringShutdownMs(int64_t now, int hour, int minute, int mask, const TIME_ZONE_INFORMATION* zone) {
+    if(hour<0||hour>23||minute<0||minute>59||mask<1||mask>127)throw std::invalid_argument("Invalid recurring shutdown time or weekdays.");
+    TIME_ZONE_INFORMATION current={};if(!zone){if(GetTimeZoneInformation(&current)==TIME_ZONE_ID_INVALID)throw WinError("Cannot read time zone");zone=&current;}
+    SYSTEMTIME utc=AsUtcTime(now),local={};
+    if(!SystemTimeToTzSpecificLocalTime(zone,&utc,&local))throw std::invalid_argument("Cannot convert recurring shutdown date.");
+    local.wHour=local.wMinute=local.wSecond=local.wMilliseconds=0;
+    const int64_t midnight=AsUtcMs(local);
+    for(int day=0;day<=14;day++) {
+        SYSTEMTIME candidate=AsUtcTime(midnight+day*DayMs);candidate.wHour=(WORD)hour;candidate.wMinute=(WORD)minute;
+        const int weekday=(candidate.wDayOfWeek+6)%7;if(!(mask&(1<<weekday)))continue;
+        int64_t first=std::numeric_limits<int64_t>::max();
+        const LONG offsets[]={zone->Bias+zone->StandardBias,zone->Bias+zone->DaylightBias};
+        for(LONG offset:offsets) {
+            int64_t trial=AsUtcMs(candidate)+static_cast<int64_t>(offset)*60000;
+            if(trial<0||trial>LastDateMs)continue;
+            SYSTEMTIME trialUtc=AsUtcTime(trial),roundtrip={};
+            if(!SystemTimeToTzSpecificLocalTime(zone,&trialUtc,&roundtrip))continue;
+            if(roundtrip.wYear==candidate.wYear&&roundtrip.wMonth==candidate.wMonth&&roundtrip.wDay==candidate.wDay&&roundtrip.wHour==hour&&roundtrip.wMinute==minute)
+                first=std::min(first,trial);
+        }
+        // Missing spring-forward wall times have no candidate; autumn repeats use
+        // only the earlier occurrence, never a second shutdown on the same date.
+        if(first!=std::numeric_limits<int64_t>::max()&&first>now)return first;
+    }
+    throw std::invalid_argument("Cannot calculate recurring shutdown date.");
+}
+
 Engine::Engine(const std::wstring& dataDirectory, bool safe, std::function<int64_t()> wallClock,
                std::function<uint64_t()> monotonicClock, std::function<void()> shutdownAction)
     : safe_(safe), wallClock_(wallClock ? wallClock : NowMs),
@@ -374,6 +412,7 @@ int64_t Engine::CountdownMs() const {
 }
 
 void Engine::ToggleStopwatch() {
+    stopwatchActive = true;
     if (stopwatchRunning) {
         stopwatchAccumulated_ = StopwatchMs();
         stopwatchRunning = false;
@@ -383,7 +422,7 @@ void Engine::ToggleStopwatch() {
     }
 }
 
-void Engine::ResetStopwatch() { stopwatchRunning = false; stopwatchAccumulated_ = 0; }
+void Engine::ResetStopwatch() { stopwatchRunning = stopwatchActive = false; stopwatchAccumulated_ = 0; }
 
 void Engine::StartCountdown(int64_t durationMs) {
     if (durationMs <= 0 || durationMs > MaximumCountdownMs) throw std::invalid_argument("Countdown must be between 1 millisecond and 7 days.");
@@ -442,13 +481,23 @@ void Engine::RemoveReminder(uint64_t id) {
 void Engine::ScheduleShutdown(int64_t dueMs) {
     const int64_t now = wallClock_();
     if (dueMs <= now || dueMs > LastDateMs) throw std::invalid_argument("Shutdown must use a future date.");
+    settings.shutdownRecurringEnabled=false;
     shutdownAt = dueMs;
     shutdownWarned_ = false;
     lastTick_ = now;
     lastTickMonotonic_ = monotonicClock_();
+    Save();
 }
 
-void Engine::CancelShutdown() { shutdownAt = 0; shutdownWarned_ = false; }
+void Engine::ArmRecurringShutdown(int64_t now) {
+    shutdownAt=NextRecurringShutdownMs(now+9999,ShutdownRepeatHour(),ShutdownRepeatMinute(),ShutdownRepeatDays());shutdownWarned_=false;
+}
+void Engine::SetRecurringShutdown(int hour,int minute,int mask) {
+    const int64_t now=wallClock_(),next=NextRecurringShutdownMs(now+9999,hour,minute,mask);
+    settings.shutdownRecurringEnabled=true;settings.shutdownRepeatHour=hour;settings.shutdownRepeatMinute=minute;settings.shutdownRepeatDays=mask;
+    shutdownAt=next;shutdownWarned_=false;lastTick_=now;lastTickMonotonic_=monotonicClock_();Save();
+}
+void Engine::CancelShutdown() { shutdownAt = 0; shutdownWarned_ = false; settings.shutdownRecurringEnabled=false; Save(); }
 
 void Engine::Notify(const std::wstring& title, const std::wstring& message, const char* kind, bool urgent) {
     Notice notice;
@@ -489,13 +538,18 @@ void Engine::Tick() {
     }
     if (!shutdownAt) return;
     const int64_t left = shutdownAt - now;
+    if(ShutdownRecurringEnabled()&&left>0&&left<10000&&(wallGap>2000||monotonicGap>2000)) {
+        ArmRecurringShutdown(now);Save();Notify(L"已跳过本次关机",L"未能完整预留最后 10 秒提醒，本次已跳过；重复计划继续保留。","shutdown",true);return;
+    }
     if (left <= 0) {
         const bool warned = shutdownWarned_;
-        CancelShutdown(); // Clear before dispatch; never retry an uncertain shutdown.
+        const bool repeating=ShutdownRecurringEnabled();
+        shutdownAt=0;shutdownWarned_=false; // Advance before dispatch; never retry an uncertain occurrence.
+        if(repeating){ArmRecurringShutdown(now);Save();}
         if (wallGap > 120000 || monotonicGap > 120000) {
-            Notify(L"已取消过期关机", L"电脑休眠或暂停期间错过了关机时间，计划已取消。", "shutdown", true);
+            Notify(repeating?L"已跳过本次关机":L"已取消过期关机", repeating?L"电脑休眠或暂停期间错过了关机时间，本次已跳过；重复计划继续保留。":L"电脑休眠或暂停期间错过了关机时间，计划已取消。", "shutdown", true);
         } else if (!warned) {
-            Notify(L"已取消未预警关机", L"关机时间已过，未能提前显示提醒，计划已取消。", "shutdown", true);
+            Notify(repeating?L"已跳过本次关机":L"已取消未预警关机", repeating?L"本次未能提前显示关机提醒，已跳过；重复计划继续保留。":L"关机时间已过，未能提前显示提醒，计划已取消。", "shutdown", true);
         } else if (safe_) {
             Notify(L"已模拟定时关机", L"安全演示模式不会关闭电脑。", "shutdown", true);
         } else {
@@ -514,13 +568,15 @@ void Engine::Tick() {
 }
 
 void Engine::NormalizeSettings() {
+    if(settings.shutdownRepeatHour<0||settings.shutdownRepeatHour>23||settings.shutdownRepeatMinute<0||settings.shutdownRepeatMinute>59||settings.shutdownRepeatDays<1||settings.shutdownRepeatDays>127){settings.shutdownRecurringEnabled=false;settings.shutdownRepeatHour=17;settings.shutdownRepeatMinute=0;settings.shutdownRepeatDays=31;}
     if (settings.scene != Scene::Desktop && settings.scene != Scene::Classroom) settings.scene = Scene::Classroom;
     if (settings.dock != Dock::Top && settings.dock != Dock::Left && settings.dock != Dock::Right) settings.dock = Dock::Top;
     if (!std::isfinite(settings.anchor) || settings.anchor < 0 || settings.anchor > 1) settings.anchor = 0.5;
     if (settings.islandDotPercent < 0 || settings.islandDotPercent > 100) settings.islandDotPercent = 20;
     settings.islandDotSize = 3 + (17 * settings.islandDotPercent + 50) / 100;
-    if (settings.activeDotDesktop < 30 || settings.activeDotDesktop > 50) settings.activeDotDesktop = 36;
-    if (settings.activeDotClassroom < 30 || settings.activeDotClassroom > 50) settings.activeDotClassroom = 48;
+    if (settings.activeDotDesktop < 40 || settings.activeDotDesktop > 160) settings.activeDotDesktop = 64;
+    if (settings.activeDotClassroom < 40 || settings.activeDotClassroom > 160) settings.activeDotClassroom = 88;
+    settings.activeDotSettingsVersion = 2;
     if (settings.glassMode < 0 || settings.glassMode > 2) settings.glassMode = 1;
     if (settings.glassRefraction < 0 || settings.glassRefraction > 100) settings.glassRefraction = 50;
     if (settings.glassTransparency < 0 || settings.glassTransparency > 100) settings.glassTransparency = 65;
@@ -547,6 +603,12 @@ void Engine::Save() {
         << "islandDotPercent=" << settings.islandDotPercent << '\n'
         << "activeDotDesktop=" << settings.activeDotDesktop << '\n'
         << "activeDotClassroom=" << settings.activeDotClassroom << '\n'
+        << "activeDotSettingsVersion=" << settings.activeDotSettingsVersion << '\n'
+        << "automaticUpdates=" << settings.automaticUpdates << '\n'
+        << "shutdownRecurringEnabled=" << settings.shutdownRecurringEnabled << '\n'
+        << "shutdownRepeatDays=" << settings.shutdownRepeatDays << '\n'
+        << "shutdownRepeatHour=" << settings.shutdownRepeatHour << '\n'
+        << "shutdownRepeatMinute=" << settings.shutdownRepeatMinute << '\n'
         << "glassMode=" << settings.glassMode << '\n'
         << "glassRefraction=" << settings.glassRefraction << '\n'
         << "glassTransparency=" << settings.glassTransparency << '\n'
@@ -585,6 +647,7 @@ void Engine::Load() {
     reminders.swap(state.reminders);
     for (size_t i = 0; i < reminders.size(); ++i) nextId_ = std::max(nextId_, reminders[i].id + 1);
     const int64_t now = wallClock_();
+    if(ShutdownRecurringEnabled())ArmRecurringShutdown(now);
     if (state.active) {
         if (state.running && state.deadline > 0 && state.deadline <= LastDateMs && state.deadline - now <= MaximumCountdownMs) {
             countdownActive = countdownRunning = true;

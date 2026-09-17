@@ -19,6 +19,10 @@
 #include <vector>
 #include <cwchar>
 #include <algorithm>
+#include <sddl.h>
+#include <exdisp.h>
+#include <shldisp.h>
+#include <servprov.h>
 
 using std::wstring;
 static const wchar_t* kAppName = L"FreeIslandWin7.exe";
@@ -34,6 +38,9 @@ static HFONT gBodyFont, gTitleFont, gSmallFont;
 static HBRUSH gPaperBrush, gWhiteBrush;
 static wstring gInstallDir, gRegisteredDir, gStatus;
 static bool gBusy = false, gDone = false, gStartupWanted = true, gDesktopWanted = true;
+static bool gAutoUpdate = false, gAutoCanRestart = false;
+static bool gAutoInstalled = false;
+static std::vector<std::pair<wstring,std::vector<BYTE>>> gOriginalHashes;
 static const UINT WM_INSTALL_FINISH = WM_APP + 1, WM_INSTALL_PROGRESS = WM_APP + 2;
 
 static wstring Join(const wstring& a, const wstring& b) { return a + L"\\" + b; }
@@ -322,6 +329,13 @@ static void SetRegistryString(HKEY h, const wchar_t* n, const wstring& value) {
     LONG e = RegSetValueExW(h, n, 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()), static_cast<DWORD>((value.size()+1)*sizeof(wchar_t)));
     if (e != ERROR_SUCCESS) { SetLastError(e); Fail(ErrorText(L"无法保存安装信息")); }
 }
+static unsigned long long BinaryVersion(const wstring& path) {
+    DWORD ignored=0,size=GetFileVersionInfoSizeW(path.c_str(),&ignored);if(!size||size>2*1024*1024)return 0;
+    std::vector<BYTE> data(size);if(!GetFileVersionInfoW(path.c_str(),0,size,data.data()))return 0;
+    VS_FIXEDFILEINFO* info=NULL;UINT length=0;if(!VerQueryValueW(data.data(),L"\\",(void**)&info,&length)||length<sizeof(*info)||info->dwSignature!=0xfeef04bd)return 0;
+    return (static_cast<unsigned long long>(info->dwFileVersionMS)<<32)|info->dwFileVersionLS;
+}
+static wstring InstallerVersion() {unsigned long long v=BinaryVersion(ModulePath());if(!v)Fail(L"无法读取安装包版本。");return std::to_wstring((v>>48)&65535)+L"."+std::to_wstring((v>>32)&65535)+L"."+std::to_wstring((v>>16)&65535);}
 static void RegisterUninstall() {
     wstring old = RegString(kUninstallKey, L"InstallLocation");
     if (!old.empty() && !EqualPath(old, gInstallDir) && (gRegisteredDir.empty() || !EqualPath(old, gRegisteredDir)))
@@ -330,7 +344,7 @@ static void RegisterUninstall() {
     if (e != ERROR_SUCCESS) { SetLastError(e); Fail(ErrorText(L"无法创建卸载信息")); }
     try {
         SetRegistryString(h, L"DisplayName", L"浮岛 Win7 · Free Island");
-          SetRegistryString(h, L"DisplayVersion", L"1.0.6");
+        SetRegistryString(h, L"DisplayVersion", InstallerVersion());
         SetRegistryString(h, L"Publisher", L"Free Island");
         SetRegistryString(h, L"InstallLocation", gInstallDir);
         SetRegistryString(h, L"DisplayIcon", Quote(Join(gInstallDir, kAppName)) + L",0");
@@ -519,7 +533,7 @@ public:
     PayloadTransaction& operator=(const PayloadTransaction&) = delete;
 };
 static void Progress(int n) { PostMessageW(gWindow, WM_INSTALL_PROGRESS, n, 0); }
-static wstring Install() {
+static wstring Install(bool updateOnly=false) {
     Payload p = VerifyPayload(); Progress(15);
     HRSRC licenseResource = FindResourceW(gInstance, MAKEINTRESOURCEW(203), RT_RCDATA);
     const void* license = licenseResource ? LockResource(LoadResource(gInstance, licenseResource)) : NULL;
@@ -549,6 +563,8 @@ static wstring Install() {
     // Payloads are now complete. Registration/shortcut failures are actionable
     // warnings, rather than reporting failure after leaving a working upgrade.
     try { RegisterUninstall(); } catch (const wstring& s) { warnings += s + L"\n"; }
+    // An automatic update preserves every existing startup and shortcut choice.
+    if(updateOnly){Progress(100);return warnings;}
     Progress(75);
     try { SetStartup(gStartupWanted); } catch (const wstring& s) { warnings += s + L"\n"; }
     try { WriteShortcut(CSIDL_PROGRAMS); } catch (const wstring& s) { warnings += s + L"\n"; }
@@ -757,6 +773,54 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp
     }
     return DefWindowProcW(hwnd,message,wp,lp);
 }
+static wstring CurrentOwnerSid() {
+    HANDLE token=NULL;if(!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token))Fail(L"无法确认安装账户。");
+    DWORD size=0;GetTokenInformation(token,TokenUser,NULL,0,&size);std::vector<BYTE> info(size);
+    BOOL ok=size&&GetTokenInformation(token,TokenUser,info.data(),size,&size);CloseHandle(token);if(!ok)Fail(L"无法确认安装账户。");
+    LPWSTR sid=NULL;if(!ConvertSidToStringSidW(((TOKEN_USER*)info.data())->User.Sid,&sid))Fail(L"无法确认安装账户。");wstring result(sid);LocalFree(sid);return result;
+}
+static wstring AutoUpdateDirectory(const wstring& requested,const wstring& registered,const wstring& uninstall,const wstring& owner,const wstring& currentOwner) {
+    if(owner.empty()||owner!=currentOwner)Fail(L"更新账户已变化。请使用原账户运行安装程序。");
+    wstring directory=ValidateInstallDirectory(requested),trusted=TrustedRegisteredDirectory(registered,uninstall);
+    if(trusted.empty()||!EqualPath(directory,trusted))Fail(L"自动更新只适用于当前账户已登记的原安装目录。");
+    CheckOwnedInstallAt(directory,false);return directory;
+}
+static bool RestartThroughExplorer(const wstring& executable,const wstring& directory) {
+    IShellWindows* windows=NULL;IDispatch *desktop=NULL,*background=NULL,*application=NULL;IServiceProvider* provider=NULL;IShellBrowser* browser=NULL;IShellView* view=NULL;IShellFolderViewDual* folder=NULL;IShellDispatch2* shell=NULL;
+    VARIANT location,root;VariantInit(&location);VariantInit(&root);location.vt=VT_I4;location.lVal=CSIDL_DESKTOP;long hwnd=0;
+    HRESULT hr=CoCreateInstance(CLSID_ShellWindows,NULL,CLSCTX_LOCAL_SERVER,IID_IShellWindows,(void**)&windows);
+    if(SUCCEEDED(hr))hr=windows->FindWindowSW(&location,&root,SWC_DESKTOP,&hwnd,SWFO_NEEDDISPATCH,&desktop);
+    if(SUCCEEDED(hr)&&desktop)hr=desktop->QueryInterface(IID_IServiceProvider,(void**)&provider);else hr=E_FAIL;
+    if(SUCCEEDED(hr))hr=provider->QueryService(SID_STopLevelBrowser,IID_IShellBrowser,(void**)&browser);
+    if(SUCCEEDED(hr))hr=browser->QueryActiveShellView(&view);
+    if(SUCCEEDED(hr))hr=view->GetItemObject(SVGIO_BACKGROUND,IID_IDispatch,(void**)&background);
+    if(SUCCEEDED(hr))hr=background->QueryInterface(IID_IShellFolderViewDual,(void**)&folder);
+    if(SUCCEEDED(hr))hr=folder->get_Application(&application);
+    if(SUCCEEDED(hr))hr=application->QueryInterface(IID_IShellDispatch2,(void**)&shell);
+    if(SUCCEEDED(hr)){VARIANT args,work,verb,show;VariantInit(&args);VariantInit(&work);VariantInit(&verb);VariantInit(&show);args.vt=work.vt=verb.vt=VT_BSTR;args.bstrVal=SysAllocString(L"--silent");work.bstrVal=SysAllocString(directory.c_str());verb.bstrVal=SysAllocString(L"open");show.vt=VT_I4;show.lVal=SW_HIDE;BSTR file=SysAllocString(executable.c_str());hr=shell->ShellExecute(file,args,work,verb,show);SysFreeString(file);VariantClear(&args);VariantClear(&work);VariantClear(&verb);}
+    if(shell)shell->Release();if(application)application->Release();if(folder)folder->Release();if(background)background->Release();if(view)view->Release();if(browser)browser->Release();if(provider)provider->Release();if(desktop)desktop->Release();if(windows)windows->Release();return SUCCEEDED(hr);
+}
+static std::vector<BYTE> FileDigest(const wstring& path) {
+    CheckPath(path);HANDLE file=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,NULL);if(file==INVALID_HANDLE_VALUE)Fail(L"无法校验安装文件。");
+    HCRYPTPROV provider=0;HCRYPTHASH hash=0;std::vector<BYTE> digest(32);BYTE buffer[65536];DWORD count=0,size=32;
+    bool ok=CryptAcquireContextW(&provider,NULL,NULL,PROV_RSA_AES,CRYPT_VERIFYCONTEXT)&&CryptCreateHash(provider,CALG_SHA_256,0,0,&hash);
+    while(ok){ok=ReadFile(file,buffer,sizeof(buffer),&count,NULL)!=FALSE;if(!ok||!count)break;ok=CryptHashData(hash,buffer,count,0)!=FALSE;}
+    if(ok)ok=CryptGetHashParam(hash,HP_HASHVAL,digest.data(),&size,0)&&size==32;
+    CloseHandle(file);if(hash)CryptDestroyHash(hash);if(provider)CryptReleaseContext(provider,0);if(!ok)Fail(L"安装文件完整性校验失败。");return digest;
+}
+static bool OriginalFilesIntact(){try{for(const auto& item:gOriginalHashes)if(FileDigest(item.first)!=item.second)return false;return !gOriginalHashes.empty();}catch(...){return false;}}
+static bool RestartAfterUpdate() {
+    if(!gAutoCanRestart)return false;
+    wstring executable=Join(gInstallDir,kAppName);if(!Exists(executable))return false;
+    if(!gAutoInstalled&&!OriginalFilesIntact())return false;
+    HANDLE token=NULL;TOKEN_ELEVATION elevation={};DWORD bytes=0;bool elevated=true;
+    if(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token)){if(GetTokenInformation(token,TokenElevation,&elevation,sizeof(elevation),&bytes))elevated=elevation.TokenIsElevated!=0;CloseHandle(token);}
+    if(elevated)return RestartThroughExplorer(executable,gInstallDir);
+    return reinterpret_cast<INT_PTR>(ShellExecuteW(NULL,L"open",executable.c_str(),L"--silent",gInstallDir.c_str(),SW_HIDE))>32;
+}
+static void WriteUpdateReceipt(bool success,const wstring& detail) {
+    try {wstring directory=Join(SpecialFolder(CSIDL_APPDATA),L"FreeIslandWin7");MakeDirectory(directory);wstring message=(success?L"success\n":L"failed\n")+InstallerVersion()+L"\n"+detail;int count=WideCharToMultiByte(CP_UTF8,0,message.data(),(int)message.size(),NULL,0,NULL,NULL);std::vector<char> bytes(count);WideCharToMultiByte(CP_UTF8,0,message.data(),(int)message.size(),bytes.data(),count,NULL,NULL);WriteBytes(Join(directory,L"update-result.txt"),bytes.data(),(DWORD)bytes.size(),true);}catch(...){}
+}
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
     gInstance=instance;
     SetProcessDPIAware();
@@ -767,7 +831,16 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
         std::vector<wstring> args; if(!argv) Fail(L"无法读取启动参数。");
         for(int i=1;i<argc;++i) args.push_back(argv[i]);
         LocalFree(argv);
-        if (args.size()==2 && args[0]==L"--verify-payload") {
+        if(args.size()==4&&args[0]==L"--auto-update"&&args[2]==L"--owner-sid") {
+            gAutoUpdate=true;
+            gInstallDir=AutoUpdateDirectory(args[1],RegString(kUninstallKey,L"InstallLocation"),RegString(kUninstallKey,L"UninstallString"),args[3],CurrentOwnerSid());gRegisteredDir=gInstallDir;
+            unsigned long long incoming=BinaryVersion(ModulePath()),installed=BinaryVersion(Join(gInstallDir,kAppName));if(!incoming||!installed||incoming<=installed)Fail(L"安装包不是更新的版本，已保留原安装。");
+            setupMutex=CreateMutexW(NULL,TRUE,L"Local\\FreeIsland.Win7.Setup");if(!setupMutex||GetLastError()==ERROR_ALREADY_EXISTS)Fail(L"另一个安装任务正在运行。");
+            for(const wchar_t* name:{kAppName,kUninstaller,kMarker}){wstring file=Join(gInstallDir,name);gOriginalHashes.push_back({file,FileDigest(file)});}
+            // Detect an unwritable directory before asking the running app to exit.
+            wstring probe=Join(gInstallDir,L".freeisland-write-test-"+std::to_wstring(GetCurrentProcessId()));WriteBytes(probe,"",0,false);DeleteKnownFile(probe);
+            gAutoCanRestart=true;wstring warning=Install(true);gAutoInstalled=true;if(RestartAfterUpdate())WriteUpdateReceipt(true,warning);else{WriteUpdateReceipt(false,L"更新已安装，但无法静默启动；请手动打开浮岛。");result=3;}
+        } else if (args.size()==2 && args[0]==L"--verify-payload") {
             Payload p=VerifyPayload(); wstring folder=FullPath(args[1]); MakeDirectory(folder);
             // Verification never modifies startup, shortcuts, app data, or installation state.
             WriteBytes(Join(folder,kAppName),p.bytes,p.size,true);
@@ -824,8 +897,8 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show) {
             MSG message;
             while(GetMessageW(&message,NULL,0,0)>0) { if(!IsDialogMessageW(window,&message)) { TranslateMessage(&message); DispatchMessageW(&message); } }
         }
-    } catch(const wstring& e) { MessageBoxW(NULL,e.c_str(),L"浮岛 Win7",MB_OK|MB_ICONERROR); result=1; }
-      catch(...) { MessageBoxW(NULL,L"操作未完成，请重新运行安装程序。",L"浮岛 Win7",MB_OK|MB_ICONERROR); result=2; }
+    } catch(const wstring& e) {if(gAutoUpdate){result=e.find(L"（5）")!=wstring::npos?5:1;WriteUpdateReceipt(false,e);RestartAfterUpdate();}else{MessageBoxW(NULL,e.c_str(),L"浮岛 Win7",MB_OK|MB_ICONERROR);result=1;}}
+      catch(...) {if(gAutoUpdate){WriteUpdateReceipt(false,L"更新未完成，已保留原安装。");RestartAfterUpdate();}else MessageBoxW(NULL,L"操作未完成，请重新运行安装程序。",L"浮岛 Win7",MB_OK|MB_ICONERROR); result=2; }
     if(setupMutex) { ReleaseMutex(setupMutex); CloseHandle(setupMutex); }
     if(gBodyFont) DeleteObject(gBodyFont);
     if(gTitleFont) DeleteObject(gTitleFont);

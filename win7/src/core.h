@@ -17,6 +17,7 @@ namespace fi {
 int64_t NowMs();
 SYSTEMTIME LocalTime(int64_t utcMs);
 int64_t LocalToMs(const SYSTEMTIME& local);
+int64_t NextRecurringShutdownMs(int64_t nowUtc, int hour, int minute, int weekdayMask, const TIME_ZONE_INFORMATION* zone = nullptr);
 
 enum class Scene { Desktop, Classroom };
 enum class Dock { Top, Left, Right };
@@ -33,8 +34,12 @@ struct Settings {
     double anchor = 0.5;
     int islandDotPercent = 20;
     int islandDotSize = 6; // Derived physical pixels, independent of monitor DPI.
-    int activeDotDesktop = 36;
-    int activeDotClassroom = 48;
+    int activeDotDesktop = 64;
+    int activeDotClassroom = 88;
+    int activeDotSettingsVersion = 2;
+    bool automaticUpdates = true;
+    bool shutdownRecurringEnabled = false;
+    int shutdownRepeatDays = 31, shutdownRepeatHour = 17, shutdownRepeatMinute = 0;
     int glassMode = 1; // 0 = off, 1 = lite, 2 = water motion (no desktop refraction).
     int glassRefraction = 50; // Curved rim thickness/appearance on Windows 7.
     int glassTransparency = 65;
@@ -72,6 +77,7 @@ public:
     Settings settings;
     std::vector<Reminder> reminders;
     bool stopwatchRunning = false;
+    bool stopwatchActive = false;
     bool countdownActive = false;
     bool countdownRunning = false;
     int64_t shutdownAt = 0; // Intentionally never persisted.
@@ -88,6 +94,12 @@ public:
     void AddReminder(const std::wstring& title, int64_t dueMs, bool daily);
     void RemoveReminder(uint64_t id);
     void ScheduleShutdown(int64_t dueMs);
+    void SetRecurringShutdown(int hour, int minute, int weekdayMask);
+    bool ShutdownRecurringEnabled() const { return settings.shutdownRecurringEnabled; }
+    int ShutdownRepeatDays() const { return settings.shutdownRepeatDays; }
+    int ShutdownRepeatHour() const { return settings.shutdownRepeatHour; }
+    int ShutdownRepeatMinute() const { return settings.shutdownRepeatMinute; }
+    bool ShutdownBlocksAutoUpdate() const { return shutdownAt && (!ShutdownRecurringEnabled() || shutdownAt-wallClock_()<=300000); }
     void CancelShutdown();
     void Tick();
     void Save();
@@ -114,6 +126,7 @@ private:
     std::vector<Notice> notices_;
 
     void NormalizeSettings();
+    void ArmRecurringShutdown(int64_t now);
     void Load();
     void ClearCountdown();
     void FinishCountdown();

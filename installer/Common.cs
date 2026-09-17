@@ -24,6 +24,9 @@ namespace FreeIsland.Installation
         internal static string RegisteredInstallPath
         {
             get {
+#if FI_INSTALLER_TESTING
+                if (TestRegistryIsolation) return TestRegisteredInstallPath;
+#endif
                 try {
                     using (RegistryKey key = Registry.CurrentUser.OpenSubKey(UninstallKey))
                     {
@@ -43,6 +46,9 @@ namespace FreeIsland.Installation
         internal static string TestInstancePrefix;
         internal static int ReplacementTimeoutMilliseconds = 8000;
         internal static Action<string> BeforeReplaceForTest;
+        internal static bool TestRegistryIsolation;
+        internal static string TestRegisteredInstallPath;
+        internal static string TestDataPath;
 #else
         private const int ReplacementTimeoutMilliseconds = 8000;
 #endif
@@ -51,7 +57,11 @@ namespace FreeIsland.Installation
             if (TestInstancePrefix != null) return TestInstancePrefix;
 #endif
             return @"Local\FreeIsland"; } }
-        internal static string DataPath { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FreeIsland"); } }
+        internal static string DataPath { get {
+#if FI_INSTALLER_TESTING
+            if (TestDataPath != null) return TestDataPath;
+#endif
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FreeIsland"); } }
         internal static string ShortcutName { get { return "浮岛 Free Island.lnk"; } }
         internal static string CurrentUserSid { get { using (WindowsIdentity identity = WindowsIdentity.GetCurrent()) return identity.User.Value; } }
         internal static bool IsAdministrator()
@@ -196,6 +206,43 @@ namespace FreeIsland.Installation
         internal static bool IsInstalled()
         {
             return IsOwnedInstallation(InstallPath);
+        }
+
+        internal static void ValidateAutoUpdateTarget(string directory)
+        {
+            string target = NormalizeInstallDirectory(directory);
+            string registered = RegisteredInstallPath;
+            if (String.IsNullOrEmpty(registered) || !SamePath(target, registered))
+                throw new InvalidOperationException("自动更新只适用于当前账户已登记的浮岛安装目录；便携版请手动更新。");
+            if (!IsOwnedInstallation(target)) throw new InvalidOperationException("原安装记录缺失或无效，自动更新已取消。");
+            foreach (string name in PayloadFiles) ValidatePayloadFile(Path.Combine(target, name));
+            ValidatePayloadFile(Path.Combine(target, "FreeIsland.install"));
+            if (!File.Exists(Path.Combine(target, "FreeIsland.exe"))) throw new IOException("原安装缺少主程序，请手动运行安装包修复。");
+            ConfigureInstallPath(target);
+        }
+
+        internal static void WriteUpdateResult(string status, string version, string detail)
+        {
+            string directory = DataPath;
+            CheckDirectoryAncestors(directory);
+            Directory.CreateDirectory(directory);
+            string destination = Path.Combine(directory, "update-result.txt");
+            ValidatePayloadFile(destination);
+            string temporary = Path.Combine(directory, "update-result-" + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                using (FileStream stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                using (StreamWriter writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                {
+                    writer.WriteLine(status); writer.WriteLine(version);
+                    writer.WriteLine(DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture));
+                    writer.Write(detail ?? ""); writer.Flush(); stream.Flush(true);
+                }
+                CheckDirectoryAncestors(directory); ValidatePayloadFile(destination);
+                if (File.Exists(destination)) File.Replace(temporary, destination, null, true);
+                else File.Move(temporary, destination);
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
 
         internal static bool IsOwnedInstallation(string directory)
@@ -518,6 +565,9 @@ namespace FreeIsland.Installation
             try
             {
                 string directory = Path.Combine(Path.GetTempPath(), "FreeIsland-Logs");
+#if FI_INSTALLER_TESTING
+                if (TestDataPath != null) directory = Path.Combine(TestDataPath, "test-logs");
+#endif
                 Directory.CreateDirectory(directory);
                 File.AppendAllText(Path.Combine(directory, "installation.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + Environment.NewLine, Encoding.UTF8);
             }

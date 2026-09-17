@@ -41,6 +41,7 @@ namespace FreeIsland.Installation
             try
             {
                 SetupOptions options = SetupOptions.Parse(args);
+                if (options.AutoUpdateDirectory != null) return RunAutoUpdate(options.AutoUpdateDirectory);
                 if (options.UserSid != null) Common.ValidateElevationUser(options.UserSid);
                 // Read the existing installation choices before changing the target path.
                 bool upgrade = Common.IsInstalled();
@@ -113,6 +114,132 @@ namespace FreeIsland.Installation
             return files;
         }
 
+#if FI_INSTALLER_TESTING
+        internal static Func<bool, bool, string> AutoInstallForTest;
+        internal static Action<string, string> AutoLaunchForTest;
+        internal static bool AutoStartupForTest, AutoDesktopForTest;
+#endif
+        internal static string InstallerVersion { get { return Assembly.GetExecutingAssembly().GetName().Version.ToString(3); } }
+
+        // No wizard and no elevation. Only a valid current-user installation may enter
+        // this path, and the existing transactional installer remains the sole writer.
+        internal static int RunAutoUpdate(string directory)
+        {
+            IDisposable guard = null;
+            Dictionary<string, string> original = null;
+            bool installed = false;
+            try
+            {
+                guard = Common.HoldSetupInstance();
+                Common.ValidateAutoUpdateTarget(directory);
+#if !FI_INSTALLER_TESTING
+                if (Common.IsAdministrator()) throw new InvalidOperationException("自动更新需要以普通用户权限运行。请从原账户正常启动浮岛后重试。");
+#endif
+                original = InstalledFingerprints();
+                bool startup, desktop;
+#if FI_INSTALLER_TESTING
+                startup = AutoStartupForTest; desktop = AutoDesktopForTest;
+                if (AutoInstallForTest == null || AutoLaunchForTest == null) throw new InvalidOperationException("Test adapters are required; real installation and launch are forbidden.");
+#else
+                startup = Common.IsStartupEnabled();
+                desktop = Common.HasOwnedShortcut(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+                string existingVersion = FileVersionInfo.GetVersionInfo(Path.Combine(Common.InstallPath, "FreeIsland.exe")).FileVersion;
+                Version previous, incoming;
+                if (Version.TryParse(existingVersion, out previous) && Version.TryParse(Assembly.GetExecutingAssembly().GetName().Version.ToString(), out incoming) && previous > incoming)
+                    throw new InvalidOperationException("现有浮岛版本较新，已拒绝自动降级。");
+#endif
+                string warning;
+                // Keep new shortcut/login launches out until installation or rollback is
+                // finished. Waiting here also makes early prerequisite failures restart
+                // only after the updater's original process has actually exited.
+                using (Common.HoldAppInstance())
+                {
+#if !FI_INSTALLER_TESTING
+                    Common.StopInstalledApp();
+#endif
+                    Common.ValidateAutoUpdateTarget(directory);
+#if FI_INSTALLER_TESTING
+                    warning = AutoInstallForTest(startup, desktop);
+#else
+                    warning = Install(startup, desktop, delegate { });
+#endif
+                }
+                installed = true;
+                SaveUpdateResult("success", String.IsNullOrEmpty(warning) ? "浮岛已完成自动更新。" : "更新完成；部分系统选项需要处理：\n" + warning);
+                // Install has disposed its app-instance guard before this launch.
+                LaunchAfterUpdate();
+                return 0;
+            }
+            catch (Exception error)
+            {
+                Common.WriteLog("Automatic update: " + error);
+                string status = installed ? "restart-failed" : original == null ? "rejected" : "failed";
+                string message = error.Message;
+                bool restart = false;
+                if (!installed && original != null)
+                {
+                    try
+                    {
+                        Common.ValidateAutoUpdateTarget(directory);
+                        restart = FingerprintsMatch(original, InstalledFingerprints());
+                    }
+                    catch { }
+                    message += restart ? "\n原安装文件保持完整，将恢复静默运行。" : "\n未能确认原安装完整，请手动运行安装包修复。";
+                }
+                SaveUpdateResult(status, message);
+                if (restart)
+                {
+                    try { LaunchAfterUpdate(); }
+                    catch (Exception launch)
+                    {
+                        Common.WriteLog("Automatic update recovery launch: " + launch);
+                        SaveUpdateResult("restart-failed", message + "\n原版本启动失败：" + launch.Message);
+                        return 3;
+                    }
+                }
+                return installed ? 3 : original == null ? 2 : 1;
+            }
+            finally { if (guard != null) guard.Dispose(); }
+        }
+
+        private static Dictionary<string, string> InstalledFingerprints()
+        {
+            var fingerprints = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var names = new List<string>(Common.PayloadFiles); names.Add("FreeIsland.install");
+            using (SHA256 sha = SHA256.Create()) foreach (string name in names)
+            {
+                string path = Path.Combine(Common.InstallPath, name);
+                if (!File.Exists(path)) { fingerprints.Add(name, null); continue; }
+                using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    fingerprints.Add(name, Convert.ToBase64String(sha.ComputeHash(stream)));
+            }
+            return fingerprints;
+        }
+        private static bool FingerprintsMatch(Dictionary<string, string> expected, Dictionary<string, string> actual)
+        {
+            foreach (KeyValuePair<string, string> file in expected)
+            {
+                string value;
+                if (!actual.TryGetValue(file.Key, out value) || !String.Equals(file.Value, value, StringComparison.Ordinal)) return false;
+            }
+            return expected.Count == actual.Count;
+        }
+        private static void SaveUpdateResult(string status, string detail)
+        {
+            try { Common.WriteUpdateResult(status, InstallerVersion, detail); }
+            catch (Exception error) { Common.WriteLog("Update result could not be saved: " + error); }
+        }
+        private static void LaunchAfterUpdate()
+        {
+#if FI_INSTALLER_TESTING
+            AutoLaunchForTest(Path.Combine(Common.InstallPath, "FreeIsland.exe"), "--silent");
+#else
+            using (Process process = Process.Start(new ProcessStartInfo(Path.Combine(Common.InstallPath, "FreeIsland.exe"), "--silent")
+                { WorkingDirectory = Common.InstallPath, UseShellExecute = false, CreateNoWindow = true }))
+                if (process == null) throw new IOException("更新已完成，但浮岛未能重新启动，请从快捷方式打开。");
+#endif
+        }
+
         internal static string Install(bool startup, bool desktop, Action<int, string> progress)
         {
             using (RegistryKey framework = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"))
@@ -154,7 +281,7 @@ namespace FreeIsland.Installation
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey(Common.UninstallKey))
             {
                 key.SetValue("DisplayName", Common.Product);
-                key.SetValue("DisplayVersion", "1.0.2");
+                key.SetValue("DisplayVersion", InstallerVersion);
                 key.SetValue("Publisher", "Free Island");
                 key.SetValue("InstallLocation", Common.InstallPath);
                 key.SetValue("DisplayIcon", Path.Combine(Common.InstallPath, "FreeIsland.exe"));
@@ -168,7 +295,7 @@ namespace FreeIsland.Installation
             }
             } catch (Exception error) { warnings.Add("卸载记录：" + error.Message + "。仍可运行安装目录中的 FreeIsland.Uninstall.exe 卸载。"); }
             progress(100, "安装完成，欢迎来到浮岛。");
-            Common.WriteLog("Installed version 1.0.2 at " + Common.InstallPath);
+            Common.WriteLog("Installed version " + InstallerVersion + " at " + Common.InstallPath);
             string warning = String.Join(Environment.NewLine + Environment.NewLine, warnings.ToArray());
             if (warning.Length != 0) Common.WriteLog("Installed with integration warnings: " + warning);
             return warning;
@@ -178,7 +305,7 @@ namespace FreeIsland.Installation
 
     internal sealed class SetupOptions
     {
-        internal string InstallDirectory, UserSid, PreviewPath;
+        internal string InstallDirectory, UserSid, PreviewPath, AutoUpdateDirectory;
         internal bool? Startup, Desktop;
 
         internal static SetupOptions Parse(string[] args)
@@ -191,6 +318,7 @@ namespace FreeIsland.Installation
                 if (index + 1 >= args.Length || !seen.Add(key)) throw new ArgumentException("安装参数缺少取值或重复，请直接打开安装包重试。");
                 string value = args[index + 1];
                 if (key == "--install-dir") options.InstallDirectory = value;
+                else if (key == "--auto-update") options.AutoUpdateDirectory = value;
                 else if (key == "--user-sid")
                 {
                     if (String.IsNullOrWhiteSpace(value)) throw new ArgumentException("缺少原 Windows 账户标识，请从原账户重新打开安装包。");
@@ -205,6 +333,8 @@ namespace FreeIsland.Installation
                 }
                 else throw new ArgumentException("不支持的安装参数：" + key);
             }
+            if (options.AutoUpdateDirectory != null && (args.Length != 2 || String.IsNullOrWhiteSpace(options.AutoUpdateDirectory)))
+                throw new ArgumentException("自动更新不能与安装目录、启动选项或提权参数混用。");
             return options;
         }
     }

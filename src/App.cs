@@ -28,11 +28,10 @@ namespace FreeIsland
         private RegisteredWaitHandle exitWait, showWait;
         private bool ending, safe;
         private bool lastCountdown, lastStopwatch;
-        private DateTime? lastShutdown;
         private IslandPlacement lastPlacement;
         private bool lastEdge;
         private UsageScene lastScene;
-        private int lastIslandDotSize, lastGlassMode;
+        private int lastIslandDotSize, lastGlassMode, lastActiveIslandSize;
         private int lastGlassRefraction, lastGlassTransparency, lastGlassHighlight;
         private double lastIslandScale;
         private HwndSource hotkey;
@@ -86,12 +85,15 @@ namespace FreeIsland
             SurfaceStyle.SnapshotMode = args.Contains("--smoke-test");
             dataPath = safe ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test-data") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FreeIsland");
             engine = new CoreEngine(dataPath, safe);
+            lastCountdown = engine.CountdownRunning;
+            lastStopwatch = engine.StopwatchRunning;
             // Honor the installer startup checkbox on the first run and after upgrades.
             if (!safe) engine.Settings.AutoStart = StartupRegistration.IsEnabled();
             lastPlacement = engine.Settings.Placement;
             lastEdge = engine.Settings.EdgeHide;
             lastScene = engine.Settings.Scene;
             lastIslandDotSize = engine.Settings.IslandDotSize;
+            lastActiveIslandSize = engine.Settings.ActiveIslandSize;
             lastGlassMode = engine.Settings.GlassMode;
             lastGlassRefraction = engine.Settings.GlassRefraction;
             lastGlassTransparency = engine.Settings.GlassTransparency;
@@ -119,7 +121,8 @@ namespace FreeIsland
             SetupSignals();
             SetupHotkey();
             ticker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-            ticker.Tick += delegate { engine.Tick(); island.RefreshActivity(); };
+            ticker.Tick += delegate { engine.Tick(); UpdateTickInterval(); };
+            UpdateTickInterval();
             ticker.Start();
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += DisplayChanged;
             if (!args.Contains("--silent")) OpenPanel("home");
@@ -230,11 +233,6 @@ namespace FreeIsland
                 lastStopwatch = engine.StopwatchRunning;
                 if (lastStopwatch) island.ShowActivity("stopwatch");
             }
-            if (engine.ShutdownAt != lastShutdown)
-            {
-                lastShutdown = engine.ShutdownAt;
-                if (lastShutdown.HasValue) island.ShowActivity("shutdown");
-            }
             if (lastPlacement != engine.Settings.Placement) { lastPlacement = engine.Settings.Placement; PreviewIsland(); }
             if (lastEdge != engine.Settings.EdgeHide) { lastEdge = engine.Settings.EdgeHide; ball.ApplyEdgePreference(); }
             if (lastGlassRefraction != engine.Settings.GlassRefraction || lastGlassTransparency != engine.Settings.GlassTransparency || lastGlassHighlight != engine.Settings.GlassHighlight)
@@ -249,9 +247,10 @@ namespace FreeIsland
                 lastGlassMode = engine.Settings.GlassMode;
                 ball.ApplyMaterial(); radial.ApplyMaterial(); island.ApplyMaterial(); islandHandle.ApplyMaterial();
             }
-            if (lastIslandDotSize != engine.Settings.IslandDotSize || lastIslandScale != engine.Settings.IslandScale)
+            if (lastIslandDotSize != engine.Settings.IslandDotSize || lastIslandScale != engine.Settings.IslandScale || lastActiveIslandSize != engine.Settings.ActiveIslandSize)
             {
                 lastIslandDotSize = engine.Settings.IslandDotSize; lastIslandScale = engine.Settings.IslandScale;
+                lastActiveIslandSize = engine.Settings.ActiveIslandSize;
                 island.ApplyScene(); island.Reposition();
                 if (!island.IsVisible) islandHandle.ShowAt(island.LastWorkArea);
             }
@@ -260,6 +259,20 @@ namespace FreeIsland
                 lastScene = engine.Settings.Scene;
                 Dispatcher.BeginInvoke(new Action(RefreshScene));
             }
+            if (island.IsVisible) island.RefreshActivity();
+            islandHandle.RefreshTasks();
+            UpdateTickInterval();
+        }
+
+        private void UpdateTickInterval()
+        {
+            if (ticker == null) return;
+            double milliseconds = engine.StopwatchRunning || engine.CountdownRunning ? 250 : 1000;
+            TimeSpan? left = engine.ShutdownRemaining;
+            if (left.HasValue)
+                milliseconds = left.Value.TotalSeconds <= 10 ? 100 : Math.Min(milliseconds, Math.Max(10, (left.Value.TotalSeconds - 10) * 1000));
+            var interval = TimeSpan.FromMilliseconds(milliseconds);
+            if (ticker.Interval != interval) ticker.Interval = interval;
         }
 
         private void OnNotice(object sender, IslandNoticeEventArgs e)
@@ -273,9 +286,7 @@ namespace FreeIsland
 
         private void PreviewIsland()
         {
-            if (engine.ShutdownAt.HasValue) island.ShowActivity("shutdown");
-            else if (engine.CountdownActive) island.ShowActivity("countdown");
-            else if (engine.StopwatchRunning || engine.StopwatchElapsed.TotalSeconds > 0) island.ShowActivity("stopwatch");
+            if (engine.GetIslandTasks().Count > 0) island.ShowTasks();
             else if (lastNotice != null) island.ShowNotice(lastNotice);
             else island.ShowNotice(new IslandNoticeEventArgs { Title = "浮岛已就绪", Message = "点击悬浮球选择功能 · 拖动调整位置", Kind = "info", Urgent = false });
         }
@@ -343,6 +354,7 @@ namespace FreeIsland
                 radial.OpenAt(ball.Left + 30, ball.Top + 30, ball.WorkArea); radial.UpdateLayout(); SaveVisual(radial, Path.Combine(path, "radial.png"));
                 radial.Dismiss();
                 engine.CancelCountdown();
+                engine.Settings.Scene = UsageScene.Desktop; RefreshScene();
                 string result = SmokeChecks.Run(engine, panel, ball, island, islandHandle, CommitIslandDock, presentation);
                 File.WriteAllText(Path.Combine(path, "result.txt"), "PASS: 12 control pages across desktop/classroom, fullscreen stage, countdown island and radial menu rendered.\r\n" + result + "\r\nNo actual shutdown or startup changes.\r\n");
             }

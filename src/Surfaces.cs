@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -357,6 +358,9 @@ namespace FreeIsland
         private int motionVersion;
         private bool collapsing;
         private string iconName = "";
+        private readonly StackPanel taskStack;
+        private readonly List<IslandTaskCard> taskCards = new List<IslandTaskCard>();
+        private bool tasksMode, noticeVisible;
 
         public IslandWindow(CoreEngine engine, Action<string> navigate, Action<Point> dropped)
         {
@@ -382,7 +386,9 @@ namespace FreeIsland
             var layers = new Grid(); layers.Children.Add(material);
             grid.Margin = new Thickness(16, 10, 12, 10); layers.Children.Add(grid); card.Child = layers;
             LiquidGlass.Track(card, material);
-            surface = new Grid { Width = 440, Height = 102 }; surface.Children.Add(card); Content = surface;
+            card.Height = 82;
+            taskStack = new StackPanel(); taskStack.Children.Add(card);
+            surface = new Grid { Width = 440, Height = 102 }; surface.Children.Add(taskStack); Content = surface;
             hideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
             hideTimer.Tick += delegate { if (!urgent && !pointerDown && !IsMouseOver && DateTime.UtcNow >= visibleUntil) Collapse(); };
             MouseEnter += delegate { visibleUntil = DateTime.UtcNow.AddSeconds(4); };
@@ -393,7 +399,7 @@ namespace FreeIsland
                 if (IsButtonSource(e.OriginalSource as DependencyObject)) return;
                 SurfaceStyle.StopPosition(this);
                 dragStart = Native.Cursor(this); positionStart = new Point(Left, Top);
-                pointerDown = true; dragged = false; CaptureMouse(); LiquidGlass.Press(card, true); e.Handled = true;
+                pointerDown = true; dragged = false; CaptureMouse(); LiquidGlass.Press(taskStack, true); e.Handled = true;
             };
             MouseMove += delegate(object sender, MouseEventArgs e)
             {
@@ -404,18 +410,18 @@ namespace FreeIsland
             };
             MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs e)
             {
-                LiquidGlass.Press(card, false);
+                LiquidGlass.Press(taskStack, false);
                 if (!pointerDown) return;
                 pointerDown = false; ReleaseMouseCapture();
                 if (dragged && dropped != null) dropped(new Point(Left + Width / 2, Top + Height / 2));
                 KeepOpenAfterDrag(); e.Handled = true;
             };
-            LostMouseCapture += delegate { pointerDown = false; LiquidGlass.Press(card, false); };
+            LostMouseCapture += delegate { pointerDown = false; LiquidGlass.Press(taskStack, false); };
             TouchWindowDrag.Attach(this, delegate(DependencyObject source) { return !IsButtonSource(source); },
-                delegate { SurfaceStyle.StopPosition(this); pointerDown = true; LiquidGlass.Press(card, true); },
+                delegate { SurfaceStyle.StopPosition(this); pointerDown = true; LiquidGlass.Press(taskStack, true); },
                 KeepOpenAfterDrag,
-                delegate(Point point) { pointerDown = false; LiquidGlass.Press(card, false); if (dropped != null) dropped(point); },
-                delegate { pointerDown = false; LiquidGlass.Press(card, false); KeepOpenAfterDrag(); });
+                delegate(Point point) { pointerDown = false; LiquidGlass.Press(taskStack, false); if (dropped != null) dropped(point); },
+                delegate { pointerDown = false; LiquidGlass.Press(taskStack, false); KeepOpenAfterDrag(); });
             SourceInitialized += delegate
             {
                 var source = PresentationSource.FromVisual(this) as HwndSource;
@@ -430,7 +436,7 @@ namespace FreeIsland
             ApplyMaterial();
             Reposition();
         }
-        public void ApplyMaterial() { if (materialMode == engine.Settings.GlassMode) return; materialMode = engine.Settings.GlassMode; material.Mode = materialMode; if (materialMode != 0) card.RenderTransform = Transform.Identity; card.Effect = materialMode == 2 ? new DropShadowEffect { BlurRadius = 15, Opacity = .14, ShadowDepth = 4, Color = Color.FromRgb(35, 51, 83) } : null; }
+        public void ApplyMaterial() { if (materialMode == engine.Settings.GlassMode) return; materialMode = engine.Settings.GlassMode; material.Mode = materialMode; foreach (var row in taskCards) row.Material.Mode = materialMode; if (materialMode != 0) card.RenderTransform = Transform.Identity; card.Effect = materialMode == 2 ? new DropShadowEffect { BlurRadius = 15, Opacity = .14, ShadowDepth = 4, Color = Color.FromRgb(35, 51, 83) } : null; }
         private void SetIcon(string name)
         {
             if (iconName == name) return; iconName = name;
@@ -446,13 +452,18 @@ namespace FreeIsland
         public void KeepOpenAfterDrag() { visibleUntil = DateTime.UtcNow.AddSeconds(7); }
         public void ShowActivity(string kind)
         {
+            if (engine.GetIslandTasks().Count > 0) { ShowTasks(); return; }
+            // A future shutdown is deliberately absent from every floating surface.
+            if (kind == "shutdown") return;
             if (urgent && activity == "shutdown" && engine.ShutdownAt.HasValue) return;
+            tasksMode = false; noticeVisible = false; ClearTaskCards(); card.Visibility = Visibility.Visible; surface.Height = 102;
             activity = kind; urgent = false; action.Content = kind == "shutdown" ? "取消" : "查看";
             card.ToolTip = null;
             RefreshActivity(); Present(7);
         }
         public void RefreshActivity()
         {
+            if (tasksMode) { UpdateTasks(); return; }
             if (activity == "countdown")
             {
                 title.Text = "倒计时  " + Format(engine.CountdownRemaining); detail.Text = engine.CountdownRunning ? "正在计时 · 点击查看" : engine.CountdownActive ? "已暂停 · 点击继续" : "计时已结束"; SetIcon("countdown");
@@ -467,7 +478,9 @@ namespace FreeIsland
         }
         public void ShowNotice(IslandNoticeEventArgs notice)
         {
-            if (urgent && activity == "shutdown" && engine.ShutdownAt.HasValue && notice.Kind != "shutdown") return;
+            TimeSpan? shutdownLeft = engine.ShutdownRemaining;
+            if (notice.Kind == "shutdown" && notice.Urgent && shutdownLeft.HasValue && shutdownLeft.Value > TimeSpan.Zero && shutdownLeft.Value.TotalSeconds <= 10) { ShowTasks(); return; }
+            noticeVisible = true; tasksMode = true; card.Visibility = Visibility.Visible;
             activity = notice.Urgent && notice.Kind == "shutdown" && engine.ShutdownAt.HasValue ? "shutdown" : "";
             urgent = notice.Urgent && activity == "shutdown";
             title.Text = notice.Title; detail.Text = notice.Message;
@@ -475,26 +488,58 @@ namespace FreeIsland
             card.ToolTip = notice.Title + "\n" + notice.Message;
             SetIcon(notice.Kind == "shutdown" ? "shutdown" : notice.Kind == "countdown" ? "countdown" : "reminders");
             action.Content = activity == "shutdown" ? "取消" : "知道了";
+            UpdateTasks();
             Present(notice.Kind == "info" ? 6 : 20);
+        }
+        public void ShowTasks()
+        {
+            tasksMode = true; noticeVisible = false; card.Visibility = Visibility.Collapsed;
+            UpdateTasks();
+            if (taskCards.Count > 0) Present(7);
+        }
+        private void ClearTaskCards()
+        {
+            foreach (var row in taskCards) taskStack.Children.Remove(row);
+            taskCards.Clear();
+        }
+        private void UpdateTasks()
+        {
+            var tasks = engine.GetIslandTasks();
+            bool rebuild = tasks.Count != taskCards.Count;
+            if (!rebuild) for (int i = 0; i < tasks.Count; i++) if (tasks[i].Kind != taskCards[i].Kind) { rebuild = true; break; }
+            if (rebuild)
+            {
+                ClearTaskCards();
+                foreach (var task in tasks)
+                {
+                    var row = new IslandTaskCard(engine, task, Collapse, delegate { KeepOpenAfterDrag(); RefreshActivity(); });
+                    taskCards.Add(row); taskStack.Children.Add(row);
+                }
+            }
+            for (int i = 0; i < tasks.Count; i++) taskCards[i].Update(tasks[i]);
+            urgent = tasks.Count > 0 && tasks[0].Kind == "shutdown";
+            double height = Math.Max(1, tasks.Count + (noticeVisible ? 1 : 0)) * 102;
+            if (surface.Height != height) { surface.Height = height; if (!pointerDown) Reposition(); }
+            if (tasks.Count == 0 && !noticeVisible && IsVisible) Collapse();
         }
         private void Act()
         {
             if (activity == "shutdown" && engine.ShutdownAt.HasValue) { engine.CancelShutdown(); urgent = false; Collapse(); }
             else if (activity != "") { navigate(activity); Collapse(); }
-            else { urgent = false; Collapse(); }
+            else { noticeVisible = false; card.Visibility = Visibility.Collapsed; if (engine.GetIslandTasks().Count > 0) { UpdateTasks(); KeepOpenAfterDrag(); } else { urgent = false; Collapse(); } }
         }
         private void Present(int seconds)
         {
             motionVersion++; collapsing = false; SurfaceStyle.StopPosition(this);
             visibleUntil = DateTime.UtcNow.AddSeconds(seconds); Reposition(); Show(); hideTimer.Start();
             var handler = Expanded; if (handler != null) handler(this, EventArgs.Empty);
-            LiquidGlass.Press(card, false);
-            if (engine.Settings.GlassMode == 0) { SurfaceStyle.Scale(card, .76, 1, 290); SurfaceStyle.Fade(card, .3, 1, 200, null); }
+            LiquidGlass.Press(taskStack, false);
+            if (engine.Settings.GlassMode == 0) { SurfaceStyle.Scale(taskStack, .90, 1, 290); SurfaceStyle.Fade(taskStack, .3, 1, 200, null); }
             else
             {
-                card.RenderTransform = Transform.Identity;
-                if (engine.Settings.GlassMode == 2) { LiquidGlass.Arrive(card); SurfaceStyle.Fade(card, .3, 1, 220, null); }
-                else { card.BeginAnimation(UIElement.OpacityProperty, null); card.Opacity = 1; }
+                taskStack.RenderTransform = Transform.Identity;
+                if (engine.Settings.GlassMode == 2) { LiquidGlass.Arrive(taskStack); SurfaceStyle.Fade(taskStack, .3, 1, 220, null); }
+                else { taskStack.BeginAnimation(UIElement.OpacityProperty, null); taskStack.Opacity = 1; }
             }
         }
         public void Reposition()
@@ -505,8 +550,8 @@ namespace FreeIsland
             double preference = engine.Settings.IslandScale;
             if (double.IsNaN(preference) || double.IsInfinity(preference) || preference < .75 || preference > 1.5) preference = 1;
             double scale = SceneMetrics.Scale(engine) * preference;
-            scale = Math.Min(scale, Math.Min(Math.Max(1, work.Width - 8) / 440, Math.Max(1, work.Height - 8) / 102));
-            Width = 440 * scale; Height = 102 * scale; surface.LayoutTransform = new ScaleTransform(scale, scale);
+            scale = Math.Min(scale, Math.Min(Math.Max(1, work.Width - 8) / 440, Math.Max(1, work.Height - 8) / surface.Height));
+            Width = 440 * scale; Height = surface.Height * scale; surface.LayoutTransform = new ScaleTransform(scale, scale);
             double anchor = engine.Settings.IslandAnchor;
             double left = engine.Settings.Placement == IslandPlacement.Top ? work.Left + work.Width * anchor - Width / 2 : engine.Settings.Placement == IslandPlacement.Left ? work.Left + 2 : work.Right - Width - 2;
             double top = engine.Settings.Placement == IslandPlacement.Top ? work.Top + 4 : work.Top + work.Height * anchor - Height / 2;
@@ -516,12 +561,12 @@ namespace FreeIsland
         {
             if (collapsing) return;
             collapsing = true; int version = ++motionVersion; hideTimer.Stop();
-            if (engine.Settings.GlassMode == 0) SurfaceStyle.Scale(card, 1, .78, 160);
-            else { card.RenderTransform = Transform.Identity; LiquidGlass.Press(card, engine.Settings.GlassMode == 2); }
-            SurfaceStyle.Fade(card, card.Opacity, 0, engine.Settings.GlassMode == 1 ? 0 : 140, delegate
+            if (engine.Settings.GlassMode == 0) SurfaceStyle.Scale(taskStack, 1, .90, 160);
+            else { taskStack.RenderTransform = Transform.Identity; LiquidGlass.Press(taskStack, engine.Settings.GlassMode == 2); }
+            SurfaceStyle.Fade(taskStack, taskStack.Opacity, 0, engine.Settings.GlassMode == 1 ? 0 : 140, delegate
             {
                 if (version != motionVersion) return;
-                LiquidGlass.Press(card, false);
+                LiquidGlass.Press(taskStack, false);
                 Hide(); collapsing = false;
                 var handler = Collapsed; if (handler != null) handler(this, EventArgs.Empty);
             });

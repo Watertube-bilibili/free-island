@@ -35,6 +35,7 @@ namespace FreeIsland
         [DataMember] public double IslandAnchor { get; set; }
         [DataMember] public string IslandScreen { get; set; }
         [DataMember] public int IslandDotSize { get; set; }
+        [DataMember] public int ActiveIslandSize { get; set; }
         private int islandDotPercent;
         private bool hasSavedDotPercent;
         [DataMember] public int IslandDotPercent
@@ -89,6 +90,7 @@ namespace FreeIsland
             islandDotPercent = 20;
             hasSavedDotPercent = false;
             IslandDotSize = 6;
+            ActiveIslandSize = 0;
             GlassMode = 1;
             GlassRefraction = 50;
             GlassTransparency = 65;
@@ -119,6 +121,18 @@ namespace FreeIsland
         public bool Urgent { get; set; }
     }
 
+    /// <summary>A stable snapshot of one task shown in the collapsed island or task stack.</summary>
+    public sealed class IslandTaskInfo
+    {
+        public string Id { get; internal set; }
+        public string Kind { get; internal set; }
+        public string Title { get; internal set; }
+        public TimeSpan Time { get; internal set; }
+        public bool Running { get; internal set; }
+        // Remaining fraction for deadlines; -1 means an open-ended stopwatch.
+        public double Progress { get; internal set; }
+    }
+
     [DataContract]
     internal sealed class SavedState
     {
@@ -129,6 +143,7 @@ namespace FreeIsland
         [DataMember] public bool CountdownRunning { get; set; }
         [DataMember] public DateTime? CountdownDeadlineUtc { get; set; }
         [DataMember] public long PausedCountdownTicks { get; set; }
+        [DataMember] public long CountdownDurationTicks { get; set; }
     }
 
     /// <summary>UI-thread domain service. Tick regularly; deadlines use UTC and survive sleep.</summary>
@@ -177,6 +192,7 @@ namespace FreeIsland
         public IList<ReminderItem> Reminders { get { return reminders.AsReadOnly(); } }
         public bool IsSafeMode { get; private set; }
         public bool StopwatchRunning { get; private set; }
+        public bool StopwatchActive { get; private set; }
         public TimeSpan StopwatchElapsed
         {
             get
@@ -187,6 +203,7 @@ namespace FreeIsland
         }
         public bool CountdownActive { get; private set; }
         public bool CountdownRunning { get; private set; }
+        public TimeSpan CountdownDuration { get; private set; }
         public TimeSpan CountdownRemaining
         {
             get
@@ -197,6 +214,27 @@ namespace FreeIsland
             }
         }
         public DateTime? ShutdownAt { get { return shutdownUtc.HasValue ? shutdownUtc.Value.ToLocalTime() : (DateTime?)null; } }
+        public TimeSpan? ShutdownRemaining { get { return shutdownUtc.HasValue ? Positive(shutdownUtc.Value - UtcNow()) : (TimeSpan?)null; } }
+
+        public IList<IslandTaskInfo> GetIslandTasks()
+        {
+            DateTime now = UtcNow();
+            List<IslandTaskInfo> tasks = new List<IslandTaskInfo>(3);
+            if (shutdownUtc.HasValue)
+            {
+                TimeSpan left = shutdownUtc.Value - now;
+                if (left > TimeSpan.Zero && left <= TimeSpan.FromSeconds(10))
+                    tasks.Add(new IslandTaskInfo { Id = "shutdown", Kind = "shutdown", Title = "即将关机", Time = left, Running = true, Progress = left.TotalSeconds / 10.0 });
+            }
+            TimeSpan countdownLeft = CountdownRunning && countdownDeadlineUtc.HasValue
+                ? Positive(countdownDeadlineUtc.Value - now) : pausedCountdown;
+            if (CountdownActive && countdownLeft > TimeSpan.Zero)
+                tasks.Add(new IslandTaskInfo { Id = "countdown", Kind = "countdown", Title = "倒计时", Time = countdownLeft, Running = CountdownRunning,
+                    Progress = CountdownDuration > TimeSpan.Zero ? Math.Min(1, countdownLeft.TotalSeconds / CountdownDuration.TotalSeconds) : 1 });
+            if (StopwatchActive)
+                tasks.Add(new IslandTaskInfo { Id = "stopwatch", Kind = "stopwatch", Title = "正计时", Time = StopwatchElapsed, Running = StopwatchRunning, Progress = -1 });
+            return tasks.AsReadOnly();
+        }
 
         public event EventHandler Changed;
         public event EventHandler<IslandNoticeEventArgs> Notice;
@@ -204,6 +242,7 @@ namespace FreeIsland
         public void ToggleStopwatch()
         {
             EnsureNotDisposed();
+            StopwatchActive = true;
             if (StopwatchRunning)
             {
                 if (monotonicStopwatch != null) monotonicStopwatch.Stop();
@@ -225,6 +264,7 @@ namespace FreeIsland
             stopwatchAccumulated = TimeSpan.Zero;
             if (monotonicStopwatch != null) monotonicStopwatch.Reset();
             StopwatchRunning = false;
+            StopwatchActive = false;
             OnChanged();
         }
 
@@ -235,6 +275,7 @@ namespace FreeIsland
                 throw new ArgumentException("倒计时时长须大于 0，且不超过 7 天。", "duration");
             countdownDeadlineUtc = UtcNow().Add(duration);
             pausedCountdown = duration;
+            CountdownDuration = duration;
             CountdownActive = true;
             CountdownRunning = true;
             SaveState();
@@ -319,7 +360,8 @@ namespace FreeIsland
             DateTime now = UtcNow();
             TimeSpan gap = Positive(now - lastTickUtc);
             lastTickUtc = now;
-            bool changed = StopwatchRunning || CountdownActive || shutdownUtc.HasValue;
+            bool changed = StopwatchRunning || CountdownRunning ||
+                (shutdownUtc.HasValue && shutdownUtc.Value - now <= TimeSpan.FromSeconds(10));
 
             while (pendingNotices.Count > 0) Publish(pendingNotices.Dequeue());
 
@@ -385,7 +427,7 @@ namespace FreeIsland
                     }
                     changed = true;
                 }
-                else if (left <= TimeSpan.FromSeconds(60) && !shutdownWarningSent)
+                else if (left <= TimeSpan.FromSeconds(10) && !shutdownWarningSent)
                 {
                     shutdownWarningSent = true;
                     Publish(NewNotice("即将自动关机", "将在 " + Math.Ceiling(left.TotalSeconds).ToString(CultureInfo.InvariantCulture) + " 秒内关机，点击取消可停止计划。", "shutdown", true));
@@ -424,6 +466,7 @@ namespace FreeIsland
             CountdownRunning = false;
             countdownDeadlineUtc = null;
             pausedCountdown = TimeSpan.Zero;
+            CountdownDuration = TimeSpan.Zero;
         }
 
         private void SaveState()
@@ -433,7 +476,8 @@ namespace FreeIsland
             {
                 Version = 1, Settings = Settings, Reminders = reminders,
                 CountdownActive = CountdownActive, CountdownRunning = CountdownRunning,
-                CountdownDeadlineUtc = countdownDeadlineUtc, PausedCountdownTicks = pausedCountdown.Ticks
+                CountdownDeadlineUtc = countdownDeadlineUtc, PausedCountdownTicks = pausedCountdown.Ticks,
+                CountdownDurationTicks = CountdownDuration.Ticks
             };
             string temporary = statePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
@@ -499,6 +543,15 @@ namespace FreeIsland
                     CountdownRunning = false;
                     pausedCountdown = TimeSpan.FromTicks(state.PausedCountdownTicks);
                 }
+                if (CountdownActive)
+                {
+                    // Old files kept the original duration until the first pause. Thereafter
+                    // the remaining duration is the best available migration baseline.
+                    long baseline = state.CountdownDurationTicks > 0 && state.CountdownDurationTicks <= MaximumCountdown.Ticks
+                        ? state.CountdownDurationTicks
+                        : (state.PausedCountdownTicks > 0 && state.PausedCountdownTicks <= MaximumCountdown.Ticks ? state.PausedCountdownTicks : 0);
+                    CountdownDuration = TimeSpan.FromTicks(Math.Max(baseline, CountdownRemaining.Ticks));
+                }
             }
         }
 
@@ -526,6 +579,7 @@ namespace FreeIsland
                 Settings.IslandAnchor = 0.5;
             if (Settings.IslandDotPercent < 0 || Settings.IslandDotPercent > 100) Settings.IslandDotPercent = 20;
             Settings.IslandDotSize = 3 + (17 * Settings.IslandDotPercent + 50) / 100;
+            if (Settings.ActiveIslandSize < 30 || Settings.ActiveIslandSize > 50) Settings.ActiveIslandSize = 0;
             if (Settings.GlassMode < 0 || Settings.GlassMode > 2) Settings.GlassMode = 1;
             Settings.GlassRefraction = Math.Max(0, Math.Min(100, Settings.GlassRefraction));
             Settings.GlassTransparency = Math.Max(0, Math.Min(100, Settings.GlassTransparency));

@@ -163,8 +163,48 @@ namespace FreeIsland
 
         private void BuildCountdown()
         {
-            Heading("倒计时", "选择常用时长，或输入小时、分钟和秒。"); var page = Page(); var timing = new StackPanel(); var digits = Numerals("25:00", classroom ? 112 : 79, new Thickness(0, 3, 0, 0)); digits.HorizontalAlignment = HorizontalAlignment.Center; timing.Children.Add(digits); var state = T("选择时长后开始", SmallSize, muted, FontWeights.Normal, new Thickness(0, 4, 0, 0)); state.HorizontalAlignment = HorizontalAlignment.Center; timing.Children.Add(state);
+            Heading("倒计时", classroom ? "滑动选择时长，用加减按钮微调，点击开始后计时。" : "选择常用时长，或输入小时、分钟和秒。"); var page = Page(); var timing = new StackPanel(); var digits = Numerals("25:00", classroom ? 88 : 79, new Thickness(0, 3, 0, 0)); digits.Name = "CountdownPreview"; digits.HorizontalAlignment = HorizontalAlignment.Center; timing.Children.Add(digits); var state = T("选择时长后开始", SmallSize, muted, FontWeights.Normal, new Thickness(0, 4, 0, 0)); state.HorizontalAlignment = HorizontalAlignment.Center; timing.Children.Add(state);
             var running = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 20, 0, 0) }; var pause = Btn("暂停", delegate { engine.PauseResumeCountdown(); }, true); pause.MinWidth = classroom ? 190 : 130; running.Children.Add(pause); running.Children.Add(Btn("结束倒计时", delegate { engine.CancelCountdown(); }, false, new Thickness(10, 0, 0, 0))); timing.Children.Add(running); page.Children.Add(Surface(timing, classroom ? 24 : 21)); page.Children.Add(SectionTitle("常用时长"));
+            if (classroom)
+            {
+                var hoursSlider = TimeSlider("CountdownHours", "倒计时小时", 0, 168);
+                var minutesSlider = TimeSlider("CountdownMinutes", "倒计时分钟", 25, 59);
+                var secondsSlider = TimeSlider("CountdownSeconds", "倒计时秒", 0, 59);
+                var choices = new UniformGrid { Columns = 4, Margin = new Thickness(-5, 0, -5, 0) };
+                var presetButtons = new Dictionary<int, Button>();
+                foreach (int number in new[] { 5, 10, 25, 45 })
+                {
+                    int minutes = number;
+                    var choice = Btn(minutes + " 分钟", delegate { hoursSlider.Value = 0; minutesSlider.Value = minutes; secondsSlider.Value = 0; }, false, new Thickness(5, 0, 5, 0));
+                    choice.Name = "CountdownPreset" + minutes; choices.Children.Add(choice); presetButtons.Add(minutes, choice);
+                }
+                page.Children.Add(choices); page.Children.Add(SectionTitle("自定义时长"));
+                var touchFields = new StackPanel(); touchFields.Children.Add(TouchNumber("小时", hoursSlider)); touchFields.Children.Add(TouchNumber("分钟", minutesSlider)); touchFields.Children.Add(TouchNumber("秒", secondsSlider)); page.Children.Add(touchFields);
+                var touchStart = Btn("开始倒计时", delegate
+                {
+                    double total = hoursSlider.Value * 3600 + minutesSlider.Value * 60 + secondsSlider.Value;
+                    if (total <= 0) { Notify("请选择大于零的时长。", true); return; }
+                    engine.StartCountdown(TimeSpan.FromSeconds(total)); Notify("倒计时已开始。");
+                }, true); touchStart.Name = "StartCustomCountdown"; touchStart.MinWidth = 220;
+                var footer = new Grid(); footer.ColumnDefinitions.Add(new ColumnDefinition()); footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var hint = T("先选时长，再开始。最长 7 天。", SmallSize, muted); hint.VerticalAlignment = VerticalAlignment.Center; hint.Margin = new Thickness(0, 0, 20, 0); footer.Children.Add(hint); Grid.SetColumn(touchStart, 1); footer.Children.Add(touchStart); ReserveActions(footer);
+                Action refreshSelection = delegate
+                {
+                    if (hoursSlider.Value >= 168) { minutesSlider.Value = 0; secondsSlider.Value = 0; }
+                    minutesSlider.IsEnabled = secondsSlider.IsEnabled = hoursSlider.Value < 168;
+                    foreach (var pair in presetButtons) { bool chosen = hoursSlider.Value == 0 && minutesSlider.Value == pair.Key && secondsSlider.Value == 0; pair.Value.Background = chosen ? selected : Brushes.White; pair.Value.BorderBrush = chosen ? accent : line; }
+                    if (!engine.CountdownActive) digits.Text = FormatTime(TimeSpan.FromSeconds(hoursSlider.Value * 3600 + minutesSlider.Value * 60 + secondsSlider.Value));
+                };
+                hoursSlider.ValueChanged += delegate { refreshSelection(); }; minutesSlider.ValueChanged += delegate { refreshSelection(); }; secondsSlider.ValueChanged += delegate { refreshSelection(); }; refreshSelection();
+                updatePage = delegate
+                {
+                    if (engine.CountdownActive) digits.Text = FormatTime(engine.CountdownRemaining); else refreshSelection();
+                    state.Text = engine.CountdownActive ? (engine.CountdownRunning ? "正在倒计时，到时自动提醒" : "已暂停") : "已选择时长，点击开始";
+                    running.Visibility = engine.CountdownActive ? Visibility.Visible : Visibility.Collapsed; pause.Content = engine.CountdownRunning ? "暂停" : "继续";
+                    touchFields.IsEnabled = choices.IsEnabled = touchStart.IsEnabled = !engine.CountdownActive;
+                };
+                return;
+            }
             var presets = new UniformGrid { Columns = 4, Margin = new Thickness(-5, 0, -5, 0) }; foreach (int number in new[] { 5, 10, 25, 45 }) { int minutes = number; presets.Children.Add(Btn(minutes + " 分钟", delegate { engine.StartCountdown(TimeSpan.FromMinutes(minutes)); Notify("已开始 " + minutes + " 分钟倒计时。"); }, false, new Thickness(5, 0, 5, 0))); } page.Children.Add(presets); page.Children.Add(SectionTitle("自定义时长"));
             var fields = new WrapPanel(); var hours = Input("0", classroom ? 105 : 76); var minutesInput = Input("25", classroom ? 105 : 76); var seconds = Input("0", classroom ? 105 : 76); fields.Children.Add(Field("小时", hours, 12)); fields.Children.Add(Field("分钟", minutesInput, 12)); fields.Children.Add(Field("秒", seconds, 20));
             var start = Btn("开始倒计时", delegate { int h, m, s; if (!int.TryParse(hours.Text, out h) || !int.TryParse(minutesInput.Text, out m) || !int.TryParse(seconds.Text, out s) || h < 0 || h > 168 || m < 0 || m > 59 || s < 0 || s > 59 || (h == 0 && m == 0 && s == 0) || (h == 168 && (m > 0 || s > 0))) { Notify("时长需大于零且不超过 7 天；分钟和秒请输入 0–59。", true); return; } engine.StartCountdown(TimeSpan.FromSeconds((long)h * 3600 + m * 60 + s)); Notify("倒计时已开始。"); }, true); start.Margin = new Thickness(0, classroom ? 30 : 24, 0, 0); fields.Children.Add(start); page.Children.Add(fields); page.Children.Add(T("到时会唤起灵动岛。关闭控制中心不会中断计时。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 15, 0, 0)));
@@ -173,9 +213,19 @@ namespace FreeIsland
 
         private void BuildReminders()
         {
-            Heading("日程提醒", "设置一次提醒，或每天在同一时间重复。"); var page = Page(); var form = new StackPanel(); var title = Input("", double.NaN); title.MaxLength = 100; title.ToolTip = "例如：下课休息、参加会议"; form.Children.Add(Field("提醒内容", title));
-            var fields = new WrapPanel { Margin = new Thickness(0, 17, 0, 0) }; DateTime nextHour = DateTime.Now.AddHours(1); var date = Input(nextHour.ToString("yyyy-MM-dd"), classroom ? 184 : 145); var time = Input(nextHour.ToString("HH:mm"), classroom ? 123 : 90); fields.Children.Add(Field("日期", date, 12)); fields.Children.Add(Field("时间", time, 17)); var daily = Check("每天重复", false); daily.Margin = new Thickness(0, classroom ? 30 : 24, 17, 0); fields.Children.Add(daily);
-            var add = Btn("＋  添加提醒", delegate { DateTime due; if (string.IsNullOrWhiteSpace(title.Text)) { Notify("请填写提醒内容，再添加提醒。", true); title.Focus(); return; } if (!ParseDateTime(date.Text, time.Text, out due)) { Notify("日期请输入 2026-09-10，时间请输入 14:30 这样的格式。", true); return; } bool repeat = daily.IsChecked == true; if (repeat && due <= DateTime.Now) due = DateTime.Today.Add(due.TimeOfDay).AddDays(1); if (due <= DateTime.Now) { Notify("提醒时间已经过去，请选择之后的时间。", true); return; } engine.AddReminder(title.Text.Trim(), due, repeat); Navigate("reminders"); Notify("提醒已添加，到时会自动弹出。"); }, true); add.Content = IconLabel("plus", "添加提醒", Brushes.White, BodySize); System.Windows.Automation.AutomationProperties.SetName(add, "＋  添加提醒"); add.Margin = new Thickness(0, classroom ? 30 : 24, 0, 0); fields.Children.Add(add); form.Children.Add(fields); page.Children.Add(Surface(form, classroom ? 25 : 22));
+            Heading("日程提醒", "设置一次提醒，或每天在同一时间重复。"); var page = Page(); var form = new StackPanel(); var title = Input("", double.NaN); title.Name = "ReminderTitle"; title.MaxLength = 100; title.ToolTip = "例如：下课休息、参加会议"; form.Children.Add(Field("提醒内容", title));
+            if (classroom)
+            {
+                var common = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
+                foreach (string value in new[] { "下课休息", "上课提醒", "眼保健操", "放学提醒" }) { string text = value; common.Children.Add(Btn(text, delegate { title.Text = text; }, false, new Thickness(0, 0, 10, 6))); }
+                form.Children.Add(common);
+            }
+            var fields = new WrapPanel { Margin = new Thickness(0, 17, 0, 0) }; DateTime nextHour = DateTime.Now.AddHours(1); var date = Input(nextHour.ToString("yyyy-MM-dd"), 145); var time = Input(nextHour.ToString("HH:mm"), 90);
+            Func<DateTime> selectedTime = null; Action<DateTime> setTime;
+            if (classroom) form.Children.Add(TouchDateTime("Reminder", nextHour, out selectedTime, out setTime));
+            else { fields.Children.Add(Field("日期", date, 12)); fields.Children.Add(Field("时间", time, 17)); }
+            var daily = Check("每天重复", false); daily.Name = "ReminderDaily"; daily.Margin = new Thickness(0, classroom ? 0 : 24, 17, 0); fields.Children.Add(daily);
+            var add = Btn("＋  添加提醒", delegate { DateTime due; if (string.IsNullOrWhiteSpace(title.Text)) { Notify("请填写提醒内容，再添加提醒。", true); title.Focus(); return; } if (classroom) due = selectedTime(); else if (!ParseDateTime(date.Text, time.Text, out due)) { Notify("日期请输入 2026-09-10，时间请输入 14:30 这样的格式。", true); return; } bool repeat = daily.IsChecked == true; if (repeat && due <= DateTime.Now) due = DateTime.Today.Add(due.TimeOfDay).AddDays(1); if (due <= DateTime.Now) { Notify("提醒时间已经过去，请选择之后的时间。", true); return; } engine.AddReminder(title.Text.Trim(), due, repeat); Navigate("reminders"); Notify("提醒已添加，到时会自动弹出。"); }, true); add.Name = "AddReminder"; add.Content = IconLabel("plus", "添加提醒", Brushes.White, BodySize); System.Windows.Automation.AutomationProperties.SetName(add, "＋  添加提醒"); add.Margin = new Thickness(0, classroom ? 0 : 24, 0, 0); fields.Children.Add(add); form.Children.Add(fields); page.Children.Add(Surface(form, classroom ? 25 : 22));
             var listTitle = SectionTitle("已安排的日程"); page.Children.Add(listTitle); var list = new StackPanel(); page.Children.Add(list); string signature = null;
             updatePage = delegate
             {
@@ -187,10 +237,12 @@ namespace FreeIsland
         private void BuildShutdown()
         {
             Heading("定时关机", "明确预约时间；关机前会提醒，也可随时取消。"); var page = Page(); var status = new StackPanel(); var due = T("尚未预约关机", classroom ? 27 : 23, ink, FontWeights.SemiBold); status.Children.Add(due); var remaining = T("选择下方时间，确认后预约才会生效。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 10, 0, 0)); status.Children.Add(remaining); var cancel = Btn("取消关机预约", delegate { engine.CancelShutdown(); Notify("已取消关机预约。"); }, false, new Thickness(0, 18, 0, 0)); cancel.HorizontalAlignment = HorizontalAlignment.Left; status.Children.Add(cancel); page.Children.Add(Surface(status, classroom ? 25 : 22)); page.Children.Add(SectionTitle("预约时间"));
-            var date = Input(DateTime.Now.AddHours(1).ToString("yyyy-MM-dd"), classroom ? 200 : 150); var time = Input(DateTime.Now.AddHours(1).ToString("HH:mm"), classroom ? 135 : 95); var presets = new WrapPanel { Margin = new Thickness(0, 0, 0, 14) };
-            foreach (int number in new[] { 30, 60, 120, 180 }) { int delay = number; presets.Children.Add(Btn(delay < 60 ? "30 分钟后" : (delay / 60) + " 小时后", delegate { var at = DateTime.Now.AddMinutes(delay); date.Text = at.ToString("yyyy-MM-dd"); time.Text = at.ToString("HH:mm"); }, false, new Thickness(0, 0, 10, 6))); } page.Children.Add(presets); var fields = new WrapPanel(); fields.Children.Add(Field("日期", date, 14)); fields.Children.Add(Field("时间", time)); page.Children.Add(fields);
-            var warning = new StackPanel { Margin = new Thickness(0, 0, classroom ? 24 : 20, 0) }; warning.Children.Add(T("预约前请保存正在进行的工作。", BodySize, B("#80540A"), FontWeights.Medium)); warning.Children.Add(T("关机前 60 秒会提醒，可随时取消。不会强制关闭应用；未保存的工作可能阻止关机。", SmallSize, B("#80540A"), FontWeights.Normal, new Thickness(0, 7, 0, 0))); if (engine.IsSafeMode) warning.Children.Add(T("安全预览：只演示预约，不执行系统关机。", SmallSize, B("#80540A"), FontWeights.Medium, new Thickness(0, 8, 0, 0)));
-            var confirm = Btn("确认预约关机", delegate { DateTime at; if (!ParseDateTime(date.Text, time.Text, out at)) { Notify("日期请输入 2026-09-10，时间请输入 23:30 这样的格式。", true); return; } if (at <= DateTime.Now.AddMinutes(1)) { Notify("请预约至少 1 分钟之后的关机时间。", true); return; } engine.ScheduleShutdown(at); Notify(engine.IsSafeMode ? "已创建安全预览预约，不会执行关机。" : "关机已预约，可随时取消。"); }, true); confirm.VerticalAlignment = VerticalAlignment.Center;
+            var date = Input(DateTime.Now.AddHours(1).ToString("yyyy-MM-dd"), 150); var time = Input(DateTime.Now.AddHours(1).ToString("HH:mm"), 95); var presets = new WrapPanel { Margin = new Thickness(0, 0, 0, 14) };
+            Func<DateTime> selectedTime = null; Action<DateTime> setTime = null; FrameworkElement touchTime = classroom ? TouchDateTime("Shutdown", DateTime.Now.AddHours(1), out selectedTime, out setTime) : null;
+            foreach (int number in new[] { 30, 60, 120, 180 }) { int delay = number; var preset = Btn(delay < 60 ? "30 分钟后" : (delay / 60) + " 小时后", delegate { var at = DateTime.Now.AddMinutes(delay); if (classroom) setTime(at); else { date.Text = at.ToString("yyyy-MM-dd"); time.Text = at.ToString("HH:mm"); } }, false, new Thickness(0, 0, 10, 6)); preset.Name = "ShutdownPreset" + delay; presets.Children.Add(preset); } page.Children.Add(presets);
+            if (classroom) page.Children.Add(touchTime); else { var fields = new WrapPanel(); fields.Children.Add(Field("日期", date, 14)); fields.Children.Add(Field("时间", time)); page.Children.Add(fields); }
+            var warning = new StackPanel { Margin = new Thickness(0, 0, classroom ? 24 : 20, 0) }; warning.Children.Add(T("预约前请保存正在进行的工作。", BodySize, B("#80540A"), FontWeights.Medium)); warning.Children.Add(T("最后 10 秒才在灵动岛显示，可随时取消。不会强制关闭应用；未保存的工作可能阻止关机。", SmallSize, B("#80540A"), FontWeights.Normal, new Thickness(0, 7, 0, 0))); if (engine.IsSafeMode) warning.Children.Add(T("安全预览：只演示预约，不执行系统关机。", SmallSize, B("#80540A"), FontWeights.Medium, new Thickness(0, 8, 0, 0)));
+            var confirm = Btn("确认预约关机", delegate { DateTime at; if (classroom) at = selectedTime(); else if (!ParseDateTime(date.Text, time.Text, out at)) { Notify("日期请输入 2026-09-10，时间请输入 23:30 这样的格式。", true); return; } if (at <= DateTime.Now.AddMinutes(1)) { Notify("请预约至少 1 分钟之后的关机时间。", true); return; } engine.ScheduleShutdown(at); Notify(engine.IsSafeMode ? "已创建安全预览预约，不会执行关机。" : "关机已预约，可随时取消。"); }, true); confirm.Name = "ConfirmShutdown"; confirm.VerticalAlignment = VerticalAlignment.Center;
             var confirmation = new Grid(); confirmation.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); confirmation.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); confirmation.Children.Add(warning); Grid.SetColumn(confirm, 1); confirmation.Children.Add(confirm);
             ReserveActions(new Border { Child = confirmation, Background = B("#FFF5E4"), BorderBrush = B("#F0D6A4"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(classroom ? 20 : 17) });
             updatePage = delegate { due.Text = engine.ShutdownAt.HasValue ? engine.ShutdownAt.Value.ToString("MM月dd日  HH:mm") + " 关机" : "尚未预约关机"; remaining.Text = engine.ShutdownAt.HasValue ? "距离预约关机还有 " + FormatTime(engine.ShutdownAt.Value - DateTime.Now) : "选择下方时间，确认后预约才会生效。"; cancel.Visibility = engine.ShutdownAt.HasValue ? Visibility.Visible : Visibility.Collapsed; };
@@ -272,16 +324,20 @@ namespace FreeIsland
             var sizes = new WrapPanel();
             var dotField = Field("小黑点大小（0–100%）", dotControls, classroom ? 34 : 28); dotField.Margin = new Thickness(0, 0, classroom ? 34 : 28, 10); sizes.Children.Add(dotField);
             var islandField = Field("展开大小（75–150%）", SizeStepper(islandSize, 75, 150, 5, "展开大小")); islandField.Margin = new Thickness(0, 0, 0, 10); sizes.Children.Add(islandField); placement.Children.Add(sizes);
-            placement.Children.Add(T("默认黑点 20%（约 6 像素），展开大小 100%。调整后点击应用。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 1, 0, 12)));
+            var activeSize = TimeSlider("ActiveIslandSizeSlider", "任务缩略球直径", engine.Settings.ActiveIslandSize == 0 ? (classroom ? 48 : 36) : engine.Settings.ActiveIslandSize, 50); activeSize.Minimum = 30;
+            var automaticSize = Check("任务缩略球跟随使用场景", engine.Settings.ActiveIslandSize == 0); automaticSize.Name = "ActiveIslandSizeAuto";
+            automaticSize.Checked += delegate { activeSize.Value = classroom ? 48 : 36; activeSize.IsEnabled = false; }; automaticSize.Unchecked += delegate { activeSize.IsEnabled = true; }; activeSize.IsEnabled = engine.Settings.ActiveIslandSize != 0;
+            placement.Children.Add(automaticSize); placement.Children.Add(TouchNumber("任务球 · px", activeSize));
+            placement.Children.Add(T("有任务时自动放大为 30–50 像素；默认教室 48、电脑 36。无任务时恢复小黑点大小。调整后点击应用。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 1, 0, 12)));
             var sizeActions = new WrapPanel();
             var applySize = Btn("应用大小", delegate
             {
                 int percent;
                 if (!int.TryParse(islandSize.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out percent) || percent < 75 || percent > 150) { Notify("展开大小请输入 75 到 150 的整数。", true); islandSize.Focus(); return; }
-                engine.Settings.IslandDotPercent = (int)Math.Round(dotSize.Value); engine.Settings.IslandScale = percent / 100.0; engine.SaveSettings(); Notify("灵动岛大小已保存。");
+                engine.Settings.IslandDotPercent = (int)Math.Round(dotSize.Value); engine.Settings.IslandScale = percent / 100.0; engine.Settings.ActiveIslandSize = automaticSize.IsChecked == true ? 0 : (int)Math.Round(activeSize.Value); engine.SaveSettings(); Notify("灵动岛大小已保存。");
             }, true);
             applySize.Name = "ApplyIslandSize"; sizeActions.Children.Add(applySize);
-            var resetSize = Btn("恢复默认大小", delegate { dotSize.Value = 20; islandSize.Text = "100"; engine.Settings.IslandDotPercent = 20; engine.Settings.IslandScale = 1; engine.SaveSettings(); Notify("已恢复黑点 20%（约 6 像素）和展开大小 100%。"); }, false, new Thickness(10, 0, 0, 0));
+            var resetSize = Btn("恢复默认大小", delegate { dotSize.Value = 20; islandSize.Text = "100"; automaticSize.IsChecked = true; activeSize.Value = classroom ? 48 : 36; engine.Settings.IslandDotPercent = 20; engine.Settings.IslandScale = 1; engine.Settings.ActiveIslandSize = 0; engine.SaveSettings(); Notify("已恢复默认黑点、展开大小和任务球尺寸。"); }, false, new Thickness(10, 0, 0, 0));
             resetSize.Name = "ResetIslandSize"; sizeActions.Children.Add(resetSize);
             placement.Children.Add(sizeActions); page.Children.Add(Surface(placement, classroom ? 20 : 21));
             var preferences = new StackPanel(); preferences.Children.Add(Setting("开机自启动", "登录 Windows 后静默启动，不弹出控制中心。", engine.Settings.AutoStart, delegate(bool value) { if (!engine.IsSafeMode) StartupRegistration.SetEnabled(value); engine.Settings.AutoStart = value; engine.SaveSettings(); })); preferences.Children.Add(Divider(classroom ? 14 : 16)); preferences.Children.Add(Setting("提醒声音", "倒计时结束、日程到时发出提示音。", engine.Settings.SoundEnabled, delegate(bool value) { engine.Settings.SoundEnabled = value; engine.SaveSettings(); })); preferences.Children.Add(Divider(classroom ? 14 : 16)); preferences.Children.Add(Setting("悬浮球靠边隐藏", "拖到屏幕边缘后收起，仅保留小箭头。", engine.Settings.EdgeHide, delegate(bool value) { engine.Settings.EdgeHide = value; engine.SaveSettings(); })); var settings = Surface(preferences, classroom ? 20 : 21); settings.Margin = new Thickness(0, classroom ? 16 : 20, 0, 0); page.Children.Add(settings);
@@ -294,6 +350,63 @@ namespace FreeIsland
             glassSaveTimer.Stop();
             try { engine.SaveSettings(); glassSettingsPending = false; Notify("玻璃参数已保存。"); }
             catch (Exception ex) { Notify("玻璃参数未保存：" + ex.Message + "。请再次调整后重试。", true); }
+        }
+
+        private Slider TimeSlider(string name, string label, int value, int maximum)
+        {
+            var slider = DotSlider(0); slider.Name = name; slider.Maximum = maximum; slider.Value = value;
+            slider.Width = double.NaN; slider.MinWidth = classroom ? 160 : 120; slider.HorizontalAlignment = HorizontalAlignment.Stretch;
+            slider.LargeChange = maximum > 59 ? 12 : 5;
+            System.Windows.Automation.AutomationProperties.SetName(slider, label);
+            System.Windows.Automation.AutomationProperties.SetHelpText(slider, "拖动选择，使用旁边的加减按钮精确调整。");
+            return slider;
+        }
+
+        private FrameworkElement TouchNumber(string label, Slider slider)
+        {
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(classroom ? 112 : 105) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(classroom ? 74 : 56) });
+            var caption = T(label, BodySize, ink, FontWeights.Medium); caption.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(caption);
+            var decrease = Btn("−", delegate { slider.Value = Math.Max(slider.Minimum, slider.Value - 1); }); decrease.Name = slider.Name + "Decrease";
+            var increase = Btn("+", delegate { slider.Value = Math.Min(slider.Maximum, slider.Value + 1); }); increase.Name = slider.Name + "Increase";
+            decrease.Width = increase.Width = TargetHeight; decrease.Padding = increase.Padding = new Thickness(0);
+            System.Windows.Automation.AutomationProperties.SetName(decrease, "减小" + label); System.Windows.Automation.AutomationProperties.SetName(increase, "增大" + label);
+            Action updateButtons = delegate { decrease.IsEnabled = slider.IsEnabled && slider.Value > slider.Minimum; increase.IsEnabled = slider.IsEnabled && slider.Value < slider.Maximum; };
+            slider.IsEnabledChanged += delegate { updateButtons(); }; slider.ValueChanged += delegate { updateButtons(); }; updateButtons();
+            Grid.SetColumn(decrease, 1); row.Children.Add(decrease); slider.Margin = new Thickness(10, 0, 10, 0); Grid.SetColumn(slider, 2); row.Children.Add(slider); Grid.SetColumn(increase, 3); row.Children.Add(increase);
+            var readout = Numerals("", classroom ? 26 : 20, new Thickness(8, 0, 0, 0)); readout.Name = slider.Name + "Readout"; readout.VerticalAlignment = VerticalAlignment.Center; readout.TextAlignment = TextAlignment.Right;
+            Action refresh = delegate { readout.Text = ((int)Math.Round(slider.Value)).ToString("00", CultureInfo.InvariantCulture); };
+            slider.ValueChanged += delegate { refresh(); }; refresh(); Grid.SetColumn(readout, 4); row.Children.Add(readout); return row;
+        }
+
+        private FrameworkElement TouchDateTime(string prefix, DateTime initial, out Func<DateTime> getValue, out Action<DateTime> setValue)
+        {
+            var panel = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
+            var selectedDate = initial.Date;
+            var calendar = new System.Windows.Controls.Calendar { Name = prefix + "Calendar", SelectedDate = selectedDate, DisplayDate = selectedDate, SelectionMode = CalendarSelectionMode.SingleDate, HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 10, 0, 12), Background = Brushes.White, BorderBrush = line, FontSize = 18, Language = System.Windows.Markup.XmlLanguage.GetLanguage("zh-CN") };
+            var dayStyle = new Style(typeof(CalendarDayButton)); dayStyle.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 44.0)); dayStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 44.0)); dayStyle.Setters.Add(new Setter(Control.FontSizeProperty, 18.0)); calendar.CalendarDayButtonStyle = dayStyle;
+            var monthStyle = new Style(typeof(CalendarButton)); monthStyle.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 74.0)); monthStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 54.0)); monthStyle.Setters.Add(new Setter(Control.FontSizeProperty, 18.0)); calendar.CalendarButtonStyle = monthStyle;
+            var dateChoices = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+            Button dateButton = null;
+            Action refreshDate = delegate { dateButton.Content = selectedDate.ToString("yyyy年M月d日", CultureInfo.GetCultureInfo("zh-CN")); System.Windows.Automation.AutomationProperties.SetName(dateButton, "选择日期：" + selectedDate.ToString("yyyy-MM-dd")); };
+            Action<DateTime> chooseDate = delegate(DateTime value) { selectedDate = value.Date; calendar.SelectedDate = selectedDate; calendar.DisplayDate = selectedDate; refreshDate(); };
+            dateButton = Btn("", delegate { calendar.Visibility = calendar.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; }); dateButton.Name = prefix + "DatePicker"; dateButton.Margin = new Thickness(0, 0, 10, 6); dateButton.MinWidth = 245; dateChoices.Children.Add(dateButton);
+            var previous = Btn("前一天", delegate { chooseDate(selectedDate.AddDays(-1)); }, false, new Thickness(0, 0, 10, 6)); previous.Name = prefix + "PreviousDay"; dateChoices.Children.Add(previous);
+            var next = Btn("后一天", delegate { chooseDate(selectedDate.AddDays(1)); }, false, new Thickness(0, 0, 10, 6)); next.Name = prefix + "NextDay"; dateChoices.Children.Add(next);
+            var today = Btn("今天", delegate { chooseDate(DateTime.Today); }, false, new Thickness(0, 0, 10, 6)); today.Name = prefix + "Today"; dateChoices.Children.Add(today);
+            var tomorrow = Btn("明天", delegate { chooseDate(DateTime.Today.AddDays(1)); }, false, new Thickness(0, 0, 0, 6)); tomorrow.Name = prefix + "Tomorrow"; dateChoices.Children.Add(tomorrow);
+            calendar.SelectedDatesChanged += delegate { if (calendar.SelectedDate.HasValue) { selectedDate = calendar.SelectedDate.Value.Date; refreshDate(); calendar.Visibility = Visibility.Collapsed; } };
+            panel.Children.Add(dateChoices); panel.Children.Add(calendar); refreshDate();
+            var hours = TimeSlider(prefix + "Hours", "小时", initial.Hour, 23); var minutes = TimeSlider(prefix + "Minutes", "分钟", initial.Minute, 59);
+            panel.Children.Add(TouchNumber("小时", hours)); panel.Children.Add(TouchNumber("分钟", minutes));
+            var summary = T("", BodySize, accent, FontWeights.Medium, new Thickness(0, 0, 0, 8)); summary.Name = prefix + "SelectedTime"; panel.Children.Add(summary);
+            Action refreshSummary = delegate { summary.Text = "已选 " + selectedDate.AddHours(hours.Value).AddMinutes(minutes.Value).ToString("M月d日  HH:mm"); };
+            hours.ValueChanged += delegate { refreshSummary(); }; minutes.ValueChanged += delegate { refreshSummary(); }; calendar.SelectedDatesChanged += delegate { refreshSummary(); }; refreshSummary();
+            getValue = delegate { return selectedDate.AddHours(hours.Value).AddMinutes(minutes.Value); };
+            setValue = delegate(DateTime value) { chooseDate(value); hours.Value = value.Hour; minutes.Value = value.Minute; refreshSummary(); };
+            return panel;
         }
 
         private Slider GlassSlider(string name, string label, int value, int recommended)
@@ -344,7 +457,8 @@ namespace FreeIsland
             Action<TouchEventArgs> touchValue = delegate(TouchEventArgs e)
             {
                 double available = Math.Max(1, slider.ActualWidth - 40);
-                slider.Value = Math.Round(Math.Max(0, Math.Min(100, (e.GetTouchPoint(slider).Position.X - 20) * 100 / available)));
+                double fraction = Math.Max(0, Math.Min(1, (e.GetTouchPoint(slider).Position.X - 20) / available));
+                slider.Value = Math.Round(slider.Minimum + fraction * (slider.Maximum - slider.Minimum));
             };
             slider.PreviewTouchDown += delegate(object sender, TouchEventArgs e) { slider.Focus(); slider.CaptureTouch(e.TouchDevice); touchValue(e); e.Handled = true; };
             slider.PreviewTouchMove += delegate(object sender, TouchEventArgs e) { if (e.TouchDevice.Captured == slider) { touchValue(e); e.Handled = true; } };

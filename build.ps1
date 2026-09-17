@@ -61,6 +61,14 @@ if (-not $SkipTests -and (Test-Path -LiteralPath $coreTestSource)) {
     Invoke-Compiler -CompilerArguments @('/nologo', '/codepage:65001', '/define:FI_CORE_TESTING', '/target:exe', '/optimize+', "/out:$testExecutable", "/reference:$serializationReference", (Join-Path $projectRoot 'src\Core.cs'), $coreTestSource)
     & $testExecutable
     if ($LASTEXITCODE -ne 0) { throw "核心行为测试失败，退出代码：$LASTEXITCODE" }
+    $updateTestExecutable = Join-Path $buildDirectory 'UpdateTests.exe'
+    Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:exe', '/optimize+', "/out:$updateTestExecutable") + $referenceArguments + @((Join-Path $projectRoot 'src\Core.cs'), (Join-Path $projectRoot 'src\UpdateService.cs'), (Join-Path $projectRoot 'tests\UpdateTests.cs')))
+    & $updateTestExecutable (Join-Path $projectRoot 'artifacts\update-tests-build-1.0.7')
+    if ($LASTEXITCODE -ne 0) { throw "Automatic update fixture tests failed: $LASTEXITCODE" }
+    $recurringTestExecutable = Join-Path $buildDirectory 'RecurringUpdateIntegrationTests.exe'
+    Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:exe', '/define:FI_CORE_TESTING', '/optimize+', "/out:$recurringTestExecutable") + $referenceArguments + @((Join-Path $projectRoot 'src\Core.cs'), (Join-Path $projectRoot 'src\UpdateService.cs'), (Join-Path $projectRoot 'tests\RecurringUpdateIntegrationTests.cs')))
+    & $recurringTestExecutable (Join-Path $projectRoot 'artifacts\recurring-update-build-1.0.7')
+    if ($LASTEXITCODE -ne 0) { throw "Recurring shutdown/update integration tests failed: $LASTEXITCODE" }
 }
 
 $installerDirectory = Join-Path $projectRoot 'installer'
@@ -70,14 +78,14 @@ $installerReferences = @('/noconfig', '/nostdlib+') + @(@('mscorlib.dll', 'Syste
 $uninstallExecutable = Join-Path $portableDirectory 'FreeIsland.Uninstall.exe'
 Write-Host '正在编译每用户卸载器…'
 Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:winexe', '/platform:anycpu', '/optimize+', "/out:$uninstallExecutable", "/win32icon:$iconPath", "/win32manifest:$manifest") + $installerReferences + @($commonSource, $installerAssembly, (Join-Path $installerDirectory 'Uninstall.cs')))
-$recoveryUninstaller = Join-Path $outputRoot 'FreeIsland-Uninstall-1.0.6.exe'
+$recoveryUninstaller = Join-Path $outputRoot 'FreeIsland-Uninstall-1.0.7.exe'
 Copy-Item -LiteralPath $uninstallExecutable -Destination $recoveryUninstaller -Force
 
 $payloadNames = @('FreeIsland.exe', 'FreeIsland.exe.config', 'FreeIsland.ico', 'FreeIsland.Uninstall.exe')
 $payloadManifestPath = Join-Path $buildDirectory 'payload.sha256'
 $payloadHashes = @($payloadNames | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $portableDirectory $_) -Algorithm SHA256).Hash + '  ' + $_ })
 [System.IO.File]::WriteAllLines($payloadManifestPath, $payloadHashes, (New-Object System.Text.UTF8Encoding($false)))
-$setupExecutable = Join-Path $outputRoot 'FreeIsland-Setup-1.0.6.exe'
+$setupExecutable = Join-Path $outputRoot 'FreeIsland-Setup-1.0.7.exe'
 $setupArguments = @('/nologo', '/codepage:65001', '/target:winexe', '/platform:anycpu', '/optimize+', "/out:$setupExecutable", "/win32icon:$iconPath", "/win32manifest:$manifest")
 $setupArguments += $installerReferences
 $setupArguments += @($commonSource, $installerAssembly, (Join-Path $installerDirectory 'Setup.cs'))
@@ -99,7 +107,7 @@ Write-Host '安装包内嵌文件 SHA-256 校验通过。'
 
 $readme = Join-Path $projectRoot 'README.md'
 if (Test-Path -LiteralPath $readme) { Copy-Item -LiteralPath $readme -Destination (Join-Path $portableDirectory 'README.md') -Force }
-$zipPath = Join-Path $outputRoot 'FreeIsland-Portable-1.0.6.zip'
+$zipPath = Join-Path $outputRoot 'FreeIsland-Portable-1.0.7.zip'
 $archiveFiles = @('FreeIsland.exe', 'FreeIsland.exe.config', 'FreeIsland.ico', 'README.md') | ForEach-Object { Join-Path $portableDirectory $_ } | Where-Object { Test-Path -LiteralPath $_ }
 Compress-Archive -LiteralPath $archiveFiles -DestinationPath $zipPath -CompressionLevel Optimal -Force
 $releaseHashes = @($setupExecutable, $zipPath, $recoveryUninstaller) | ForEach-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash + '  ' + [System.IO.Path]::GetFileName($_) }

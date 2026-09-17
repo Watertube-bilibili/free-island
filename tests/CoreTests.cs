@@ -35,6 +35,9 @@ internal static class CoreTests
             Run("unwarned expiry cancels even a short missed deadline", UnwarnedShutdown);
             Run("missed shutdown after sleep is cancelled", MissedShutdown);
             Run("shutdown plan is never restored", ShutdownNotPersistent);
+            Run("recurring weekday calendar skips past days and validates selection", RecurringCalendar);
+            Run("recurring DST gaps skipped and repeated hour occurs only once", RecurringDaylightSaving);
+            Run("recurring dispatch, failure and missed warning window", RecurringDispatch);
             Run("corrupt state recovers atomic backup", CorruptBackup);
             Console.WriteLine("PASS: " + passed + " core tests. No registry or shutdown commands were executed.");
             return 0;
@@ -702,5 +705,67 @@ internal static class CoreTests
             restored.Tick();
             Check(info == 1, "Backup recovery reported");
         }
+    }
+
+    private static void RecurringCalendar()
+    {
+        DateTime sunday = new DateTime(2026, 9, 20, 18, 0, 0, DateTimeKind.Utc);
+        Check(CoreEngine.NextRecurringShutdownUtc(sunday, 17, 0, 31, TimeZoneInfo.Utc) == new DateTime(2026, 9, 21, 17, 0, 0, DateTimeKind.Utc), "Workdays advance Sunday to Monday");
+        Check(CoreEngine.NextRecurringShutdownUtc(sunday, 19, 0, 64, TimeZoneInfo.Utc) == sunday.AddHours(1), "Sunday uses bit six");
+        Check(CoreEngine.NextRecurringShutdownUtc(sunday, 17, 0, 64, TimeZoneInfo.Utc) == sunday.Date.AddDays(7).AddHours(17), "Past Sunday advances a full week");
+        Check(CoreEngine.NextRecurringShutdownUtc(sunday, 18, 0, 127, TimeZoneInfo.Utc) == sunday.AddDays(1), "Exact deadline is never immediately restored");
+        Reject(delegate { CoreEngine.NextRecurringShutdownUtc(sunday, 24, 0, 127, TimeZoneInfo.Utc); }, "Invalid recurring hour");
+        Reject(delegate { CoreEngine.NextRecurringShutdownUtc(sunday, 17, 60, 127, TimeZoneInfo.Utc); }, "Invalid recurring minute");
+        Reject(delegate { CoreEngine.NextRecurringShutdownUtc(sunday, 17, 0, 0, TimeZoneInfo.Utc); }, "No weekdays selected");
+        Reject(delegate { CoreEngine.NextRecurringShutdownUtc(sunday, 17, 0, 128, TimeZoneInfo.Utc); }, "Invalid weekday mask");
+    }
+    private static void RecurringDispatch()
+    {
+        DateTime now = Start;
+        DateTime local = now.ToLocalTime().AddHours(1);
+        int calls = 0;
+        using (CoreEngine engine = new CoreEngine(NewDirectory(), false, delegate { return now; }, delegate { calls++; }))
+        {
+            engine.SetRecurringShutdown(local.Hour, local.Minute, 127);
+            DateTime due = engine.ShutdownAt.Value.ToUniversalTime();
+            now = due.AddSeconds(-10);
+            int warnings = 0;
+            engine.Notice += delegate(object sender, IslandNoticeEventArgs e) { if (e.Title == "即将自动关机") warnings++; };
+            engine.Tick();
+            Check(warnings == 1 && calls == 0, "Recurring warning starts at ten seconds");
+            for (int second = 0; second < 10; second++) { now = now.AddSeconds(1); engine.Tick(); }
+            engine.Tick();
+            Check(calls == 1 && engine.ShutdownRecurringEnabled && engine.ShutdownAt.Value.ToUniversalTime() > due, "Injected action occurs once and next day is armed");
+            due = engine.ShutdownAt.Value.ToUniversalTime();
+            now = due.AddSeconds(-5); engine.Tick();
+            Check(calls == 1 && engine.ShutdownAt.Value.ToUniversalTime() > due, "Resume inside the final ten seconds skips current occurrence");
+            due = engine.ShutdownAt.Value.ToUniversalTime();
+            now = due; engine.Tick();
+            Check(calls == 1 && engine.ShutdownAt.Value.ToUniversalTime() > due, "Unwarned exact deadline skips and advances");
+            now = now.Date.AddDays(1).AddHours(local.ToUniversalTime().Hour).AddSeconds(-5);
+            DateTime closeLocal = now.AddSeconds(5).ToLocalTime();
+            engine.SetRecurringShutdown(closeLocal.Hour, closeLocal.Minute, 127);
+            Check(engine.ShutdownRemaining.Value > TimeSpan.FromSeconds(10), "Arming five seconds before occurrence skips insufficient warning time");
+        }
+        now = Start;
+        using (CoreEngine engine = new CoreEngine(NewDirectory(), false, delegate { return now; }, delegate { calls++; throw new InvalidOperationException("fixture failure"); }))
+        {
+            engine.SetRecurringShutdown(local.Hour, local.Minute, 127);
+            DateTime due = engine.ShutdownAt.Value.ToUniversalTime();
+            now = due.AddSeconds(-10); engine.Tick();
+            now = due; engine.Tick(); engine.Tick();
+            Check(calls == 2 && engine.ShutdownRecurringEnabled && engine.ShutdownAt.Value.ToUniversalTime() > due, "Failed action is not retried and future occurrences remain");
+        }
+    }
+
+    private static void RecurringDaylightSaving()
+    {
+        var spring = TimeZoneInfo.TransitionTime.CreateFloatingDateRule(new DateTime(1, 1, 1, 2, 0, 0), 3, 2, DayOfWeek.Sunday);
+        var autumn = TimeZoneInfo.TransitionTime.CreateFloatingDateRule(new DateTime(1, 1, 1, 2, 0, 0), 11, 1, DayOfWeek.Sunday);
+        var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(new DateTime(2030, 1, 1), new DateTime(2030, 12, 31), TimeSpan.FromHours(1), spring, autumn);
+        var zone = TimeZoneInfo.CreateCustomTimeZone("FreeIsland fixture eastern", TimeSpan.FromHours(-5), "Fixture", "Standard", "Daylight", new[] { rule });
+        Check(CoreEngine.NextRecurringShutdownUtc(new DateTime(2030, 3, 10, 6, 0, 0, DateTimeKind.Utc), 2, 30, 64, zone) == new DateTime(2030, 3, 17, 6, 30, 0, DateTimeKind.Utc), "Spring nonexistent time skips that selected day");
+        Check(CoreEngine.NextRecurringShutdownUtc(new DateTime(2030, 11, 3, 5, 0, 0, DateTimeKind.Utc), 1, 30, 64, zone) == new DateTime(2030, 11, 3, 5, 30, 0, DateTimeKind.Utc), "Autumn ambiguous hour chooses earliest occurrence");
+        Check(CoreEngine.NextRecurringShutdownUtc(new DateTime(2030, 11, 3, 5, 31, 0, DateTimeKind.Utc), 1, 30, 64, zone) == new DateTime(2030, 11, 10, 6, 30, 0, DateTimeKind.Utc), "Autumn repeated hour cannot trigger a second occurrence");
     }
 }

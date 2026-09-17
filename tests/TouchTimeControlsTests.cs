@@ -24,7 +24,8 @@ internal static class TouchTimeControlsTests
     }
     private static int Count<T>(DependencyObject root) where T : DependencyObject
     {
-        int count = root is T ? 1 : 0;
+        var element = root as UIElement;
+        int count = root is T && (element == null || element.IsVisible) ? 1 : 0;
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) count += Count<T>(VisualTreeHelper.GetChild(root, i));
         return count;
     }

@@ -96,6 +96,16 @@ int wmain(int argc,wchar_t** argv) {
 
         wstring trusted=TrustedRegisteredDirectory(custom,Quote(Join(custom,kUninstaller))+L" --uninstall");
         Require(EqualPath(trusted,custom),"owned registered installation not recognized");
+        const wstring fakeSid=L"S-1-5-21-111-222-333-1001";
+        Require(EqualPath(AutoUpdateDirectory(custom,custom,Quote(Join(custom,kUninstaller))+L" --uninstall",fakeSid,fakeSid),custom),"registered automatic-update target rejected");
+        Reject([&]{AutoUpdateDirectory(custom,custom,Quote(Join(custom,kUninstaller))+L" --uninstall",fakeSid,L"S-1-5-21-other");},"automatic update accepted a different account");
+        Reject([&]{AutoUpdateDirectory(custom,L"",L"",fakeSid,fakeSid);},"portable directory accepted automatic installation");
+        Reject([&]{AutoUpdateDirectory(foreign,custom,Quote(Join(custom,kUninstaller))+L" --uninstall",fakeSid,fakeSid);},"automatic update accepted a different directory");
+        gOriginalHashes.clear();gOriginalHashes.push_back({Join(custom,kAppName),FileDigest(Join(custom,kAppName))});
+        Require(OriginalFilesIntact(),"original file fingerprint mismatch");WriteBytes(Join(custom,kAppName),"changed-app",11,true);
+        Require(!OriginalFilesIntact(),"partial replacement eligible for failure restart");WriteBytes(Join(custom,kAppName),"fixture-app",11,true);
+        Require(OriginalFilesIntact(),"restored original fingerprint rejected");gOriginalHashes.clear();
+        std::cout<<"PASS: automatic update matches registered path and account; portable/different owner rejected; failed-update restart requires restored file fingerprints\n";
         Require(TrustedRegisteredDirectory(custom,L"foreign-command").empty(),"foreign uninstall command trusted");
         Require(TrustedRegisteredDirectory(foreign,Quote(Join(foreign,kUninstaller))+L" --uninstall").empty(),"missing marker trusted");
         gInstallDir=Join(root,L"new-install"); Seed(gInstallDir); gRegisteredDir=trusted;

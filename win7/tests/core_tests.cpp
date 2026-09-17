@@ -469,7 +469,8 @@ void ShutdownAndStopwatchNeverRestored() {
         fi::Engine e(path, false, time.Wall(), time.Mono(), time.Shutdown());
         e.ScheduleShutdown(time.wall + 1000); e.Tick();
         e.ToggleStopwatch(); time.Advance(500); e.Save();
-        Check(ReadBytes(path + L"\\state.dat").find("shutdown") == std::string::npos, "No shutdown plan stored.");
+        const std::string saved = ReadBytes(path + L"\\state.dat");
+        Check(saved.find("shutdownAt=") == std::string::npos && saved.find("shutdownRecurringEnabled=0") != std::string::npos, "One-shot deadline is not stored and recurring remains disabled.");
     }
     time.Advance(2000);
     {
@@ -528,18 +529,18 @@ void TaskThumbnailState() {
     Clock time; const std::wstring path = Directory();
     {
         fi::Engine e(path, true, time.Wall(), time.Mono(), time.Shutdown());
-        Check(e.settings.activeDotDesktop == 36 && e.settings.activeDotClassroom == 48, "Per-scene thumbnail defaults.");
-        e.settings.activeDotDesktop = 30; e.settings.activeDotClassroom = 50;
+        Check(e.settings.activeDotDesktop == 64 && e.settings.activeDotClassroom == 88, "Per-scene thumbnail defaults.");
+        e.settings.activeDotDesktop = 40; e.settings.activeDotClassroom = 160;
         e.StartCountdown(120000); time.Advance(30000); e.PauseCountdown();
         Equal(120000, e.CountdownDurationMs(), "Ring denominator keeps original duration after pause.");
         Equal(90000, e.CountdownMs(), "Ring numerator is paused remaining time.");
     }
     {
         fi::Engine e(path, true, time.Wall(), time.Mono(), time.Shutdown());
-        Check(e.settings.activeDotDesktop == 30 && e.settings.activeDotClassroom == 50, "Thumbnail settings survive restart.");
+        Check(e.settings.activeDotDesktop == 40 && e.settings.activeDotClassroom == 160, "Thumbnail settings survive restart.");
         Equal(120000, e.CountdownDurationMs(), "Original duration survives restart.");
-        e.settings.activeDotDesktop = 29; e.settings.activeDotClassroom = 51; e.Save();
-        Check(e.settings.activeDotDesktop == 36 && e.settings.activeDotClassroom == 48, "Invalid sizes restore scene defaults.");
+        e.settings.activeDotDesktop = 39; e.settings.activeDotClassroom = 161; e.Save();
+        Check(e.settings.activeDotDesktop == 64 && e.settings.activeDotClassroom == 88, "Invalid sizes restore scene defaults.");
         e.PauseCountdown(); time.Advance(10000); Equal(120000, e.CountdownDurationMs(), "Resume does not reset ring.");
         e.StartCountdown(20000); Equal(20000, e.CountdownDurationMs(), "Replacement resets original duration.");
         e.CancelCountdown(); Equal(0, e.CountdownDurationMs(), "Cancel clears ring state.");
@@ -548,10 +549,64 @@ void TaskThumbnailState() {
     SettingsFixture(legacy, "countdownActive=1\ncountdownRunning=0\npausedCountdown=15000\n");
     fi::Engine old(legacy, true, time.Wall(), time.Mono(), time.Shutdown());
     Equal(15000, old.CountdownDurationMs(), "Legacy countdown establishes a valid ring denominator.");
+    const std::wstring migrated = Directory();
+    SettingsFixture(migrated, "activeDotDesktop=30\nactiveDotClassroom=50\n");
+    fi::Engine migration(migrated, true, time.Wall(), time.Mono(), time.Shutdown());
+    Check(migration.settings.activeDotDesktop==64&&migration.settings.activeDotClassroom==88&&migration.settings.automaticUpdates,"Old tiny task balls migrate to larger defaults; automatic updates default on.");
+    migration.settings.activeDotDesktop=40;migration.settings.activeDotClassroom=160;migration.settings.automaticUpdates=false;migration.Save();
+    fi::Engine persisted(migrated,true,time.Wall(),time.Mono(),time.Shutdown());
+    Check(persisted.settings.activeDotDesktop==40&&persisted.settings.activeDotClassroom==160&&!persisted.settings.automaticUpdates,"New valid small values and update opt-out survive reload without remigration.");
+    persisted.ToggleStopwatch();persisted.ToggleStopwatch();
+    Check(persisted.stopwatchActive&&!persisted.stopwatchRunning&&persisted.StopwatchMs()==0,"Instantly paused stopwatch remains an active task.");
+    persisted.ResetStopwatch();Check(!persisted.stopwatchActive,"Explicit reset clears active task.");
 }
 
 void Run(const char* name, const std::function<void()>& test) {
     test(); ++passed; std::cout << "PASS " << name << std::endl;
+}
+
+int64_t CalendarUtc(int year,int month,int day,int hour=0,int minute=0) {
+    SYSTEMTIME st={};st.wYear=(WORD)year;st.wMonth=(WORD)month;st.wDay=(WORD)day;st.wHour=(WORD)hour;st.wMinute=(WORD)minute;
+    FILETIME ft={};Check(SystemTimeToFileTime(&st,&ft)!=FALSE,"UTC fixture date");ULARGE_INTEGER n;n.LowPart=ft.dwLowDateTime;n.HighPart=ft.dwHighDateTime;return static_cast<int64_t>(n.QuadPart/10000)-11644473600000LL;
+}
+void RecurringCalendar() {
+    TIME_ZONE_INFORMATION utc={};int64_t sunday=CalendarUtc(2026,9,20,18);
+    Equal(CalendarUtc(2026,9,21,17),fi::NextRecurringShutdownMs(sunday,17,0,31,&utc),"Workdays skip Sunday.");
+    Equal(sunday+3600000,fi::NextRecurringShutdownMs(sunday,19,0,64,&utc),"Sunday mask bit six.");
+    Equal(CalendarUtc(2026,9,27,17),fi::NextRecurringShutdownMs(sunday,17,0,64,&utc),"Past Sunday skips a week.");
+    Equal(sunday+86400000,fi::NextRecurringShutdownMs(sunday,18,0,127,&utc),"Exact time is not immediate catchup.");
+    Reject([&]{fi::NextRecurringShutdownMs(sunday,24,0,127,&utc);});Reject([&]{fi::NextRecurringShutdownMs(sunday,17,60,127,&utc);});Reject([&]{fi::NextRecurringShutdownMs(sunday,17,0,0,&utc);});Reject([&]{fi::NextRecurringShutdownMs(sunday,17,0,128,&utc);});
+    TIME_ZONE_INFORMATION eastern={};eastern.Bias=300;eastern.DaylightBias=-60;eastern.DaylightDate.wMonth=3;eastern.DaylightDate.wDay=2;eastern.DaylightDate.wHour=2;eastern.StandardDate.wMonth=11;eastern.StandardDate.wDay=1;eastern.StandardDate.wHour=2;
+    Equal(CalendarUtc(2030,3,17,6,30),fi::NextRecurringShutdownMs(CalendarUtc(2030,3,10,6),2,30,64,&eastern),"DST spring gap skips selected day.");
+    Equal(CalendarUtc(2030,11,3,5,30),fi::NextRecurringShutdownMs(CalendarUtc(2030,11,3,5),1,30,64,&eastern),"DST autumn uses first occurrence.");
+    Equal(CalendarUtc(2030,11,10,6,30),fi::NextRecurringShutdownMs(CalendarUtc(2030,11,3,5,31),1,30,64,&eastern),"DST autumn never fires twice.");
+}
+void RecurringPersistence() {
+    Clock time;const std::wstring path=Directory();SYSTEMTIME desired=fi::LocalTime(time.wall+3600000);int64_t due=0;
+    {
+        fi::Engine e(path,false,time.Wall(),time.Mono(),time.Shutdown());e.SetRecurringShutdown(desired.wHour,desired.wMinute,127);due=e.shutdownAt;
+        Check(e.ShutdownRecurringEnabled()&&e.ShutdownRepeatDays()==127&&!e.ShutdownBlocksAutoUpdate(),"Recurring plan and safe updater window.");
+        time.Advance(due-time.wall-300000);Check(e.ShutdownBlocksAutoUpdate(),"Exactly five minutes blocks updater.");
+    }
+    {
+        fi::Engine e(path,false,time.Wall(),time.Mono(),time.Shutdown());Check(e.ShutdownRecurringEnabled()&&e.shutdownAt==due,"Recurring rule survives restart.");
+        time.Advance(due-time.wall-10000);e.Tick();Check(Notices(e,"shutdown").size()==1,"Recurring last ten seconds warns once.");
+        time.Advance(10000);e.Tick();Check(time.calls==1&&e.shutdownAt>time.wall&&e.ShutdownRecurringEnabled(),"Normal shutdown dispatch advances next occurrence first.");
+        e.Tick();Check(time.calls==1,"Occurrence never dispatches twice.");
+        e.CancelShutdown();Check(!e.ShutdownRecurringEnabled()&&!e.shutdownAt,"Cancel disables every future occurrence.");
+    }
+    {
+        fi::Engine e(path,true,time.Wall(),time.Mono(),time.Shutdown());Check(!e.ShutdownRecurringEnabled()&&!e.shutdownAt,"Cancellation survives restart.");
+        e.SetRecurringShutdown(desired.wHour,desired.wMinute,127);due=e.shutdownAt;
+        time.Advance(due-time.wall-5000);e.Tick();Check(e.shutdownAt>due&&Notices(e,"shutdown").size()==1,"Resume inside warning window skips current occurrence.");
+        e.SetRecurringShutdown(desired.wHour,desired.wMinute,127);due=e.shutdownAt;time.Advance(due-time.wall+1);e.Tick();Check(e.shutdownAt>due&&time.calls==1,"Missed recurrence advances without dispatch.");
+        e.ScheduleShutdown(time.wall+600000);Check(!e.ShutdownRecurringEnabled()&&e.ShutdownBlocksAutoUpdate(),"Oneoff replaces recurring and blocks restart.");
+    }
+    {
+        fi::Engine e(path,true,time.Wall(),time.Mono(),time.Shutdown());Check(!e.ShutdownRecurringEnabled()&&!e.shutdownAt,"Oneoff is never restored as recurring.");
+        SYSTEMTIME close=fi::LocalTime(time.wall+5000);time.wall=fi::LocalToMs(close);time.wall-=time.wall%60000;time.wall-=5000;
+        close=fi::LocalTime(time.wall+5000);e.SetRecurringShutdown(close.wHour,close.wMinute,127);Check(e.shutdownAt-time.wall>10000,"New recurring plan never arms with insufficient warning time.");
+    }
 }
 
 void Cleanup() {
@@ -600,6 +655,8 @@ int main() {
         Run("checksummed atomic backup recovery", CorruptBackupAndChecksum);
         Run("native local/UTC time conversion", LocalTimeRoundtrip);
         Run("thumbnail scene sizing, persistence, countdown ring pause and migration", TaskThumbnailState);
+        Run("recurring weekday calendar, validation and deterministic DST", RecurringCalendar);
+        Run("recurring shutdown persistence, warning, cancellation and updater guard", RecurringPersistence);
         std::cout << "PASS: " << passed << " native core tests. No registry or OS shutdown commands executed." << std::endl;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << std::endl;

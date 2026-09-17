@@ -1,0 +1,6 @@
+c8a526271b0844e44c7ee2bb6dc84084ffda0e1cec618276dc3d59b072c85e79  FreeIsland-Portable-1.0.6.zip
+cba22f7e819ed65c182a05088a270d656f7c7535061d33f3ccc36d4335fcf86b  FreeIsland-Setup-1.0.6.exe
+fd02ca0eaa8abda5f302973ab39875bad58a20b56e2af37a67470b6d5da1c3cc  FreeIsland-Source-1.0.6.zip
+2a92eef628d5780ee2c35a387a6efbafab95055ca8ee7ab0966992ab53854208  FreeIsland-Uninstall-1.0.6.exe
+f1ffba1c03c9e9306e20bc10bc70af7f18bdb71eb94304355ab33b86e8e51ca6  FreeIsland-Win7-Portable-1.0.6.zip
+5767ece17d2b531d8c533c68f8dbe58588a2a06bc4a6c62b35ec43fd5db49531  FreeIsland-Win7-Setup-1.0.6.exe

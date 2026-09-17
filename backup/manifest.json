@@ -1,0 +1,285 @@
+{
+    "createdUtc":  "2026-09-17T03:45:27.9914831Z",
+    "repository":  "Watertube-bilibili/free-island",
+    "branch":  "main",
+    "directory":  "backup",
+    "description":  "Historical packages archived before v1.0.7. Unversioned files retain their original names; exact historical version is not inferred.",
+    "files":  [
+                  {
+                      "name":  "FreeIsland-Portable-1.0.0.zip",
+                      "size":  73748,
+                      "sha256":  "277c34e744dad8ef5434295fe0f640d3580ce49c23bcd246a5a3f6e930c368b6",
+                      "gitBlobSha":  "83636d8396a9917cd2e09d5e24398a86e25c623d"
+                  },
+                  {
+                      "name":  "FreeIsland-Portable-1.0.1.zip",
+                      "size":  79846,
+                      "sha256":  "85b4a912ed8866d67deed20b7d16463201254aecfac96fcc204b96f97441f899",
+                      "gitBlobSha":  "b4e19420a339855c4009513a47c394bd71e9eb95"
+                  },
+                  {
+                      "name":  "FreeIsland-Portable-1.0.2.zip",
+                      "size":  88083,
+                      "sha256":  "948f0831732a071e352ae8d4567945e4d0d7622f8e8f3adb2a89c2c38e3f0b52",
+                      "gitBlobSha":  "ebba244f31d9aed3c6dfa37665a4e82dc093b020"
+                  },
+                  {
+                      "name":  "FreeIsland-Portable-1.0.3.zip",
+                      "size":  89997,
+                      "sha256":  "843db3977735f7bf2c09504cba4006fe3b3723e22dc4af2168ae93e5e9e56a97",
+                      "gitBlobSha":  "d5b0b253aebd6e915363b883673c49065a44b5b5"
+                  },
+                  {
+                      "name":  "FreeIsland-Portable-1.0.4.zip",
+                      "size":  90574,
+                      "sha256":  "6b8c3a91b28213797efb97d49164663574b8f6f451960ca014c625acecc04860",
+                      "gitBlobSha":  "fcb6f475f495ffa6541992efc5ef05903cb15135"
+                  },
+                  {
+                      "name":  "FreeIsland-Portable-1.0.5.zip",
+                      "size":  96767,
+                      "sha256":  "7c64f42e49605f0abc670400473a52b83e3b3e24a37bb07365c61c064f22b1dd",
+                      "gitBlobSha":  "db5d5a3c293428ea05aa9e98d2b025d6b1a813ac"
+                  },
+                  {
+                      "name":  "FreeIsland-Portable-1.0.6.zip",
+                      "size":  106206,
+                      "sha256":  "c8a526271b0844e44c7ee2bb6dc84084ffda0e1cec618276dc3d59b072c85e79",
+                      "gitBlobSha":  "f3bf0f5177520b7c0872c1b48d9d3030cfedde6c"
+                  },
+                  {
+                      "name":  "FreeIsland-Setup-1.0.0.exe",
+                      "size":  198656,
+                      "sha256":  "abb1f4dc208aeceaa44b23e505ab057658e920a256f1fe72aab68a8af5b5e2ff",
+                      "gitBlobSha":  "0ec928e9c8807001daed154372b5cfe467aad1cd"
+                  },
+                  {
+                      "name":  "FreeIsland-Setup-1.0.1.exe",
+                      "size":  226304,
+                      "sha256":  "146810b226edae59fb4296b5e0959caff29687950cf874a5ac8335c6a6b26a9d",
+                      "gitBlobSha":  "a5abf26451a6399c43fd6eec0d189fe6c7f5f24b"
+                  },
+                  {
+                      "name":  "FreeIsland-Setup-1.0.2.exe",
+                      "size":  261120,
+                      "sha256":  "6e166f6aa5cce3f1275406c3154440eb8f5d55726990343f79c4ce37f98aedef",
+                      "gitBlobSha":  "570646a218db773781c32e12717e8671e2194e9e"
+                  },
+                  {
+                      "name":  "FreeIsland-Setup-1.0.3.exe",
+                      "size":  265216,
+                      "sha256":  "13efab5ecb135821cd6de6c3f2f542e5581c50019a91b29f8c1df7099e40cc67",
+                      "gitBlobSha":  "bdd2e61aa39dfdcbd2a6358adfa79f4afcbdd0df"
+                  },
+                  {
+                      "name":  "FreeIsland-Setup-1.0.4.exe",
+                      "size":  266240,
+                      "sha256":  "2ed0da375d4abc8086c567d979581b555699f19578d070d3831c15c2d578aed5",
+                      "gitBlobSha":  "b88279b19353eebfaa97ef294b32eeea1db8fed5"
+                  },
+                  {
+                      "name":  "FreeIsland-Setup-1.0.5.exe",
+                      "size":  280576,
+                      "sha256":  "ea1f70159626ea5ad1ded87b4872e36e1a803d8516f17f7dade079393f3003cd",
+                      "gitBlobSha":  "b8fda921eb6d453946b28f1abb95f0f79c81fa02"
+                  },
+                  {
+                      "name":  "FreeIsland-Setup-1.0.6.exe",
+                      "size":  302592,
+                      "sha256":  "cba22f7e819ed65c182a05088a270d656f7c7535061d33f3ccc36d4335fcf86b",
+                      "gitBlobSha":  "ee3531a3fea26f543a0a0c192fe179e2ab1c9709"
+                  },
+                  {
+                      "name":  "FreeIsland-Source.zip",
+                      "size":  157126,
+                      "sha256":  "04a43730bd4d0f06a65527ee20b8c86b31feb70cc9fc7036eb1eb4bc60208fde",
+                      "gitBlobSha":  "7a21b490114c7daadb862bbf7349e95044826c4d"
+                  },
+                  {
+                      "name":  "FreeIsland-Source-1.0.1.zip",
+                      "size":  181381,
+                      "sha256":  "4768bbfdfc4013c89ba6ee66d0d1def583cb552abbacba45eda9d2dd26d6eab8",
+                      "gitBlobSha":  "5335b7e78b61deba1065a6ee14915088c92f8c80"
+                  },
+                  {
+                      "name":  "FreeIsland-Source-1.0.2.zip",
+                      "size":  202604,
+                      "sha256":  "9d68c016c46b423f697c488f808c260a845e7c5502e2e01560b6c92318acfa25",
+                      "gitBlobSha":  "c4f1b0cf26830794fb37b26bd09e0fcb90a5f079"
+                  },
+                  {
+                      "name":  "FreeIsland-Source-1.0.3.zip",
+                      "size":  226795,
+                      "sha256":  "f04e7c821a61cb52f81ba3572b946f1b4a6e7d3099310b81b6e31e918984144b",
+                      "gitBlobSha":  "7c146efe93240cfeadc8b9a27f68619c6ba1b344"
+                  },
+                  {
+                      "name":  "FreeIsland-Source-1.0.4.zip",
+                      "size":  236446,
+                      "sha256":  "f8bde17e6b63cb58ab9ca6d8128fe2c72002e7af5fd4765497bf0ac7def1bb7c",
+                      "gitBlobSha":  "e0661124e4e83a9cfa34576dab082a97b3ac7fcb"
+                  },
+                  {
+                      "name":  "FreeIsland-Source-1.0.5.zip",
+                      "size":  261728,
+                      "sha256":  "66a50cefd78701125eb914832ef4613d203d30e2767d5832a5c2a11cf8d76800",
+                      "gitBlobSha":  "ee8734b62c609202a6f230d10f47a764807af7dd"
+                  },
+                  {
+                      "name":  "FreeIsland-Source-1.0.6.zip",
+                      "size":  290542,
+                      "sha256":  "fd02ca0eaa8abda5f302973ab39875bad58a20b56e2af37a67470b6d5da1c3cc",
+                      "gitBlobSha":  "8c8ff8f95f113932c4ac5b87ab20216f8ad81a5a"
+                  },
+                  {
+                      "name":  "FreeIsland-Uninstall-1.0.2.exe",
+                      "size":  33280,
+                      "sha256":  "18a9624ba77cdfb2fd895454f7b66606de5944c60b3fca0e88abce4cb3cd3196",
+                      "gitBlobSha":  "f3408289b5344f7149fba699f4302de54a1bcf37"
+                  },
+                  {
+                      "name":  "FreeIsland-Uninstall-1.0.3.exe",
+                      "size":  33280,
+                      "sha256":  "9f793af11af34870890edd6e6d7452741d8fcf72312a93a8c9398cc37f941af5",
+                      "gitBlobSha":  "b7890fae3e5429232113013607d0501137b26409"
+                  },
+                  {
+                      "name":  "FreeIsland-Uninstall-1.0.4.exe",
+                      "size":  33280,
+                      "sha256":  "4d4902b0b2c29c5f6a5cb87044cca41315b529f152f491436c7650d26dc3faa1",
+                      "gitBlobSha":  "8243590ca4ef0d57b7092f27e36a4e5819d74afe"
+                  },
+                  {
+                      "name":  "FreeIsland-Uninstall-1.0.5.exe",
+                      "size":  33280,
+                      "sha256":  "04782a4f9dde34413c0dce27194120c01adb9a82c4a9afb0292fd9840c4bd643",
+                      "gitBlobSha":  "235cc82a25f377896e08ee9d015bb2521cd94461"
+                  },
+                  {
+                      "name":  "FreeIsland-Uninstall-1.0.6.exe",
+                      "size":  33280,
+                      "sha256":  "2a92eef628d5780ee2c35a387a6efbafab95055ca8ee7ab0966992ab53854208",
+                      "gitBlobSha":  "091525586f5cb1ea9f779ef93aebaac6445a357c"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Portable-1.0.0.zip",
+                      "size":  334982,
+                      "sha256":  "b68d2b0d08ab836907b078c7b450b650176115ad39983b6a127d4f888663dd52",
+                      "gitBlobSha":  "968d56cca97315a30523bde12bf02e9b23f63014"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Portable-1.0.1.zip",
+                      "size":  346413,
+                      "sha256":  "233a3215789f7da3af2ecb9c92299ee7202de2585f423acda9102bd650a8e2e5",
+                      "gitBlobSha":  "5918cc53310129c0b13a8f5c81307d7db6de4ee5"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Portable-1.0.2.zip",
+                      "size":  346579,
+                      "sha256":  "ab2eca7ac718ea42f74901005ff9a3f312a557891905f19ffa16c508a5b3baac",
+                      "gitBlobSha":  "f9a83a0115649d297d20d3738fd92524946eb882"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Portable-1.0.3.zip",
+                      "size":  349614,
+                      "sha256":  "2598b1b9b66b33204dd37a11bea80745720a17caeee904829c7ea39d443f3473",
+                      "gitBlobSha":  "6332a6c2f490886daf8581b6372481cff7e94ad5"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Portable-1.0.4.zip",
+                      "size":  354621,
+                      "sha256":  "5fa364b540ffa5c1c0b7232b05c93c4685f6cd17575a23d23e552aebf09f6e62",
+                      "gitBlobSha":  "a738a1683b7a1b5b63eb7f7da91fe0867dfe8034"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Portable-1.0.5.zip",
+                      "size":  355465,
+                      "sha256":  "7ef40b1e2bfe5091cf4144a3f870f9f826aaf26d7965bdd26252d10e9234a519",
+                      "gitBlobSha":  "a234b5ae2e3824f8ee54533215f66473ee4f3cd9"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Portable-1.0.6.zip",
+                      "size":  374242,
+                      "sha256":  "f1ffba1c03c9e9306e20bc10bc70af7f18bdb71eb94304355ab33b86e8e51ca6",
+                      "gitBlobSha":  "43ee7a234f0e93666fc43b970c463421c540a5db"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Setup-1.0.0.exe",
+                      "size":  1062400,
+                      "sha256":  "1ba4e3ebe6d2a4c114f484293514e2b67fd43a79ee123c615ab05a01bc4533eb",
+                      "gitBlobSha":  "7cb4fa0768dba565345af351089e08f7e70b3b81"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Setup-1.0.1.exe",
+                      "size":  1108992,
+                      "sha256":  "f7097a63b1c040ab99f088dd4ec844abe6e02b5ef62929bd818fde7983fcb0b1",
+                      "gitBlobSha":  "65dbe72eb9930ff235060375038003d604313ca5"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Setup-1.0.2.exe",
+                      "size":  1132544,
+                      "sha256":  "eba0cc4f11b48fa0058b3a91b3605b2da1adacdb7d97903e441761bce252e315",
+                      "gitBlobSha":  "850a914466b9726f3eea07758fdb778b725e854d"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Setup-1.0.3.exe",
+                      "size":  1139200,
+                      "sha256":  "8350a33d709439cd66fa97cca48c69d5171f014cfcaa05e1781acb8c63ef77ef",
+                      "gitBlobSha":  "710e510f307d43ad6b76f78e11908559d1357c10"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Setup-1.0.4.exe",
+                      "size":  1150464,
+                      "sha256":  "49e20dc06079452ad72ab075c1669f87e1f7dcb3413f448bc0ec189b52d96b02",
+                      "gitBlobSha":  "e3afdd2cae8e60c15c85c30e74d1e52bcf2c53ed"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Setup-1.0.5.exe",
+                      "size":  1169920,
+                      "sha256":  "d618d95ba041e56206e2d0f37071ac8734857cf0975d3036449f9917dbdd7311",
+                      "gitBlobSha":  "c49be7e66eb7bc03191de58f59194cd079428cf3"
+                  },
+                  {
+                      "name":  "FreeIsland-Win7-Setup-1.0.6.exe",
+                      "size":  1213952,
+                      "sha256":  "5767ece17d2b531d8c533c68f8dbe58588a2a06bc4a6c62b35ec43fd5db49531",
+                      "gitBlobSha":  "d0efd143857d75b9fde84ca5faab04336f6ddc30"
+                  },
+                  {
+                      "name":  "SHA256SUMS.txt",
+                      "size":  289,
+                      "sha256":  "a43024f8771e1f7c26c17ddace2a682bd2d66703fe2397a286f5a85497bc5ef2",
+                      "gitBlobSha":  "8aae5987159f914d025586dd539eb3c338f0c919"
+                  },
+                  {
+                      "name":  "SHA256SUMS-1.0.3.txt",
+                      "size":  585,
+                      "sha256":  "9a2eed3f0f7267d953b32796fa27de3ecffe143965bba35935ad6f8350297b67",
+                      "gitBlobSha":  "8d02ca8751c844e7f8bd038ebe7a95d5e24ba1fc"
+                  },
+                  {
+                      "name":  "SHA256SUMS-1.0.4.txt",
+                      "size":  585,
+                      "sha256":  "3dc9436ae6dcab0be67cbd7fa3fd8acdb00daf721da272743e020bc50992d437",
+                      "gitBlobSha":  "e01e955be1741f38980c138131a6edb2b4d58267"
+                  },
+                  {
+                      "name":  "SHA256SUMS-1.0.5.txt",
+                      "size":  585,
+                      "sha256":  "d68bdc45c336c05df672e22c8ddb0daa768a669dfdddec9c9df3340e7ab07d8a",
+                      "gitBlobSha":  "5407f5a89a10f06fee2a8af90fb6feea16d3cd51"
+                  },
+                  {
+                      "name":  "SHA256SUMS-1.0.6.txt",
+                      "size":  585,
+                      "sha256":  "2abc9a1719d5e8dfc48377655dbcb98304748231d9d378a25eeee986e6836b9d",
+                      "gitBlobSha":  "5241adca039b5af83de19c0f2f40964ded5e568a"
+                  },
+                  {
+                      "name":  "SHA256SUMS-Win7.txt",
+                      "size":  287,
+                      "sha256":  "508a577946bbe3d362c8785a084c05b5a2fd39b4f0988ae83b8c1be90599ee4d",
+                      "gitBlobSha":  "fe4f59d357fb8c545eb80e943a65752dc3348fbe"
+                  }
+              ]
+}

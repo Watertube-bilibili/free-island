@@ -20,11 +20,15 @@ internal static class CoreTests
             Run("island sizing validation before save and after load", IslandSizingValidation);
             Run("glass parameters migrate old settings and persist independently", GlassParameterSettings);
             Run("glass parameters clamp on save and load", GlassParameterValidation);
+            Run("active island size defaults, persistence and validation", ActiveIslandSizing);
             Run("usage scene persistence, old settings and invalid scene", UsageSceneSettings);
             Run("duration and future-date validation", Validation);
             Run("stopwatch pause and reset", Stopwatch);
             Run("countdown pause, restart and single completion", Countdown);
             Run("countdown sleep and restart expiry", CountdownRestartExpiry);
+            Run("task snapshots include paused timers and preserve stable ordering", IslandTaskSnapshots);
+            Run("countdown progress survives restart and migrates old files", CountdownProgressPersistence);
+            Run("shutdown appears only at ten seconds and stays quiet while distant", ShutdownTaskBoundary);
             Run("one-time and daily reminders", Reminders);
             Run("safe shutdown, prewarning and cancellation", SafeShutdown);
             Run("normal shutdown dispatch uses injected test action once", ShutdownDispatch);
@@ -338,6 +342,145 @@ internal static class CoreTests
         }
     }
 
+    private static void ActiveIslandSizing()
+    {
+        DateTime now = Start;
+        string path = NewDirectory();
+        File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"Settings\":{\"AutoStart\":false}}");
+        using (CoreEngine engine = Engine(path, delegate { return now; }))
+        {
+            Check(engine.Settings.ActiveIslandSize == 0, "Old settings select automatic active size");
+            foreach (int invalid in new[] { -1, 1, 29, 51, int.MaxValue })
+            {
+                engine.Settings.ActiveIslandSize = invalid;
+                engine.SaveSettings();
+                Check(engine.Settings.ActiveIslandSize == 0, "Invalid active size returns to automatic");
+            }
+            foreach (int size in new[] { 30, 40, 50 })
+            {
+                engine.Settings.ActiveIslandSize = size;
+                engine.SaveSettings();
+                Check(engine.Settings.ActiveIslandSize == size, "Range endpoints remain selectable");
+            }
+        }
+        using (CoreEngine engine = Engine(path, delegate { return now; }))
+            Check(engine.Settings.ActiveIslandSize == 50 && !engine.Settings.AutoStart, "Custom active size persists independently");
+        File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"Settings\":{\"ActiveIslandSize\":999}}");
+        using (CoreEngine engine = Engine(path, delegate { return now; }))
+            Check(engine.Settings.ActiveIslandSize == 0, "Invalid loaded active size normalizes");
+    }
+
+    private static void IslandTaskSnapshots()
+    {
+        DateTime now = Start;
+        using (CoreEngine engine = Engine(NewDirectory(), delegate { return now; }))
+        {
+            Check(engine.GetIslandTasks().Count == 0 && !engine.StopwatchActive, "Idle engine has no task");
+            engine.AddReminder("稍后提醒", now.AddHours(2), false);
+            engine.ScheduleShutdown(now.AddHours(3));
+            Check(engine.GetIslandTasks().Count == 0, "Future reminder and distant shutdown do not occupy island");
+            engine.ToggleStopwatch();
+            engine.ToggleStopwatch();
+            IList<IslandTaskInfo> pausedZero = engine.GetIslandTasks();
+            Check(engine.StopwatchActive && pausedZero.Count == 1 && !pausedZero[0].Running && pausedZero[0].Time == TimeSpan.Zero,
+                "Stopwatch paused at zero still counts as a task");
+            Check(pausedZero[0].Progress == -1, "Stopwatch has no fake completion fraction");
+            engine.StartCountdown(TimeSpan.FromSeconds(100));
+            now = now.AddSeconds(25);
+            engine.PauseResumeCountdown();
+            IList<IslandTaskInfo> tasks = engine.GetIslandTasks();
+            Check(tasks.Count == 2 && tasks[0].Kind == "countdown" && tasks[1].Kind == "stopwatch", "Two paused tasks appear in deterministic order");
+            Check(!tasks[0].Running && Math.Abs(tasks[0].Progress - 0.75) < 0.0001, "Paused countdown retains remaining fraction");
+            string countdownId = tasks[0].Id;
+            string stopwatchId = tasks[1].Id;
+            now = now.AddMinutes(5);
+            engine.PauseResumeCountdown();
+            engine.ToggleStopwatch();
+            Check(engine.GetIslandTasks()[0].Id == countdownId && engine.GetIslandTasks()[1].Id == stopwatchId, "Task identities remain stable across pause and resume");
+            Check(!tasks[0].Running && tasks[0].Time == TimeSpan.FromSeconds(75), "Earlier snapshot is immutable as engine changes");
+            bool readOnly = false;
+            try { tasks.Clear(); } catch (NotSupportedException) { readOnly = true; }
+            Check(readOnly, "Snapshot collection cannot mutate engine state");
+            engine.ScheduleShutdown(now.AddSeconds(10));
+            tasks = engine.GetIslandTasks();
+            Check(tasks.Count == 3 && tasks[0].Kind == "shutdown" && tasks[1].Kind == "countdown", "Urgent shutdown leads the task stack");
+            engine.CancelShutdown();
+            engine.ResetStopwatch();
+            Check(!engine.StopwatchActive && engine.GetIslandTasks().Count == 1, "Reset removes stopwatch task");
+            now = now.AddSeconds(75);
+            Check(engine.GetIslandTasks().Count == 0, "Expired countdown disappears even before completion tick");
+            engine.Tick();
+            Check(engine.CountdownDuration == TimeSpan.Zero, "Finished countdown clears progress baseline");
+        }
+    }
+
+    private static void CountdownProgressPersistence()
+    {
+        DateTime now = Start;
+        string path = NewDirectory();
+        using (CoreEngine engine = Engine(path, delegate { return now; }))
+        {
+            engine.StartCountdown(TimeSpan.FromSeconds(100));
+            now = now.AddSeconds(25);
+            engine.PauseResumeCountdown();
+        }
+        using (CoreEngine engine = Engine(path, delegate { return now; }))
+        {
+            Equal(TimeSpan.FromSeconds(100), engine.CountdownDuration, "Original duration survives paused restart");
+            Check(Math.Abs(engine.GetIslandTasks()[0].Progress - 0.75) < 0.0001, "Paused progress survives restart");
+            engine.PauseResumeCountdown();
+        }
+        now = now.AddSeconds(25);
+        using (CoreEngine engine = Engine(path, delegate { return now; }))
+        {
+            Equal(TimeSpan.FromSeconds(100), engine.CountdownDuration, "Original duration survives running restart");
+            Check(Math.Abs(engine.GetIslandTasks()[0].Progress - 0.5) < 0.0001, "Running progress advances while closed");
+            engine.CancelCountdown();
+            Equal(TimeSpan.Zero, engine.CountdownDuration, "Cancel clears original duration");
+        }
+        File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"CountdownActive\":true,\"CountdownRunning\":false,\"PausedCountdownTicks\":750000000}");
+        using (CoreEngine engine = Engine(path, delegate { return now; }))
+        {
+            Equal(TimeSpan.FromSeconds(75), engine.CountdownDuration, "Old paused countdown migrates to available baseline");
+            Check(engine.GetIslandTasks()[0].Progress == 1, "Migration has a valid ring baseline");
+        }
+        File.WriteAllText(Path.Combine(path, "state.json"), "{\"Version\":1,\"CountdownActive\":true,\"CountdownRunning\":false,\"PausedCountdownTicks\":750000000,\"CountdownDurationTicks\":1}");
+        using (CoreEngine engine = Engine(path, delegate { return now; }))
+        {
+            Equal(TimeSpan.FromSeconds(75), engine.CountdownDuration, "Malformed baseline cannot be less than remaining time");
+            Check(engine.GetIslandTasks()[0].Progress == 1, "Malformed baseline cannot overflow ring");
+        }
+    }
+
+    private static void ShutdownTaskBoundary()
+    {
+        DateTime now = Start;
+        using (CoreEngine engine = Engine(NewDirectory(), delegate { return now; }))
+        {
+            int changed = 0, notices = 0;
+            engine.ScheduleShutdown(now.AddSeconds(70));
+            engine.Changed += delegate { changed++; };
+            engine.Notice += delegate(object sender, IslandNoticeEventArgs e) { if (e.Kind == "shutdown") notices++; };
+            now = now.AddSeconds(10);
+            engine.Tick();
+            Check(changed == 0 && notices == 0 && engine.GetIslandTasks().Count == 0, "Sixty seconds does not display or repaint shutdown");
+            now = Start.AddMilliseconds(59999);
+            engine.Tick();
+            Check(changed == 0 && notices == 0 && engine.GetIslandTasks().Count == 0, "10.001 seconds remains hidden");
+            Equal(TimeSpan.FromMilliseconds(10001), engine.ShutdownRemaining.Value, "Shutdown remaining uses injected clock");
+            now = Start.AddSeconds(60);
+            engine.Tick();
+            Check(notices == 1 && changed == 1 && engine.GetIslandTasks().Count == 1, "Exactly ten seconds shows task and warns");
+            Check(engine.GetIslandTasks()[0].Progress == 1, "Urgent countdown ring begins full");
+            engine.Tick();
+            Check(notices == 1, "Warning is emitted only once");
+            now = Start.AddSeconds(65);
+            Check(engine.GetIslandTasks()[0].Progress == 0.5, "Urgent shutdown progress follows final ten seconds");
+            engine.CancelShutdown();
+            Check(engine.ShutdownRemaining == null && engine.GetIslandTasks().Count == 0, "Cancellation clears urgent task and remaining time");
+        }
+    }
+
     private static void UsageSceneSettings()
     {
         DateTime now = Start;
@@ -445,10 +588,10 @@ internal static class CoreTests
             engine.ScheduleShutdown(now.AddSeconds(70));
             engine.Tick();
             Check(titles.Count == 0, "No early prewarning");
-            now = now.AddSeconds(10);
+            now = now.AddSeconds(60);
             engine.Tick();
             engine.Tick();
-            Check(titles.Count == 1 && titles[0] == "即将自动关机", "Single 60-second prewarning");
+            Check(titles.Count == 1 && titles[0] == "即将自动关机", "Single 10-second prewarning");
             engine.CancelShutdown();
             now = now.AddMinutes(1);
             engine.Tick();

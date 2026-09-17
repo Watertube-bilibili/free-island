@@ -24,6 +24,8 @@ namespace FreeIsland
         private PresentationWindow presentation;
         private Forms.NotifyIcon tray;
         private DispatcherTimer ticker;
+        private DispatcherTimer updateTicker;
+        private UpdateService updater;
         private EventWaitHandle exitEvent, showEvent;
         private RegisteredWaitHandle exitWait, showWait;
         private bool ending, safe;
@@ -109,7 +111,8 @@ namespace FreeIsland
             ball = new BallWindow(engine, ToggleRadial, OpenPanel);
             presentation = new PresentationWindow(engine);
             ApplyAppIcon(presentation);
-            panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation);
+            updater = new UpdateService(engine, delegate { return panel != null && panel.IsVisible || presentation != null && presentation.IsVisible || island != null && island.IsVisible || radial != null && radial.IsVisible; }, ExitApp);
+            panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation, updater);
             MainWindow = panel;
             ApplyAppIcon(panel);
             radial = new RadialWindow(engine, OpenPanel, delegate { if (!ending) { ball.Show(); ball.ScheduleHide(); } });
@@ -124,6 +127,9 @@ namespace FreeIsland
             ticker.Tick += delegate { engine.Tick(); UpdateTickInterval(); };
             UpdateTickInterval();
             ticker.Start();
+            updateTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            updateTicker.Tick += delegate { updater.Poll(); };
+            if (!safe) updateTicker.Start();
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += DisplayChanged;
             if (!args.Contains("--silent")) OpenPanel("home");
             if (args.Contains("--smoke-test"))
@@ -215,7 +221,7 @@ namespace FreeIsland
             ball.ApplyScene(); island.ApplyScene(); island.Reposition();
             if (!island.IsVisible) islandHandle.ShowAt(island.LastWorkArea);
             panel.AllowClose = true; panel.Close();
-            panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation);
+            panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation, updater);
             ApplyAppIcon(panel);
             MainWindow = panel; panel.Navigate(page);
             if (wasVisible) { panel.Show(); panel.Activate(); }
@@ -381,6 +387,8 @@ namespace FreeIsland
             ending = true;
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= DisplayChanged;
             if (ticker != null) ticker.Stop();
+            if (updateTicker != null) updateTicker.Stop();
+            if (updater != null) updater.Dispose();
             if (engine != null)
             {
                 engine.Notice -= OnNotice; engine.Changed -= OnChanged;

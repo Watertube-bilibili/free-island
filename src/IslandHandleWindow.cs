@@ -111,7 +111,7 @@ namespace FreeIsland
             if (pointerDown) return;
             lastWork = work;
             var tasks = engine.GetIslandTasks(); activeCount = tasks.Count;
-            activeSize = engine.Settings.ActiveIslandSize == 0 ? engine.Settings.Scene == UsageScene.Classroom ? 48 : 36 : engine.Settings.ActiveIslandSize;
+            activeSize = engine.Settings.ActiveIslandSize == 0 ? engine.Settings.Scene == UsageScene.Classroom ? 88 : 64 : engine.Settings.ActiveIslandSize;
             thumbnail.Update(tasks.Count > 0 ? tasks[0] : null, tasks.Count);
             SurfaceStyle.StopPosition(this);
             IslandPlacement placement = engine.Settings.Placement;
@@ -124,8 +124,9 @@ namespace FreeIsland
             if (activeCount > 0)
             {
                 Matrix device = DeviceScale();
-                Width = Math.Max(Width, (activeSize + 10) / device.M11);
-                Height = Math.Max(Height, (activeSize + 10) / device.M22);
+                double padded = activeSize + Math.Ceiling(activeSize * .18) + 4;
+                Width = Math.Max(Width, padded / device.M11);
+                Height = Math.Max(Height, padded / device.M22);
             }
             double left = top ? work.Left + work.Width * anchor - Width / 2
                 : placement == IslandPlacement.Left ? work.Left : work.Right - Width;
@@ -140,7 +141,7 @@ namespace FreeIsland
         {
             if (!IsVisible || pointerDown) return;
             var tasks = engine.GetIslandTasks();
-            int size = engine.Settings.ActiveIslandSize == 0 ? engine.Settings.Scene == UsageScene.Classroom ? 48 : 36 : engine.Settings.ActiveIslandSize;
+            int size = engine.Settings.ActiveIslandSize == 0 ? engine.Settings.Scene == UsageScene.Classroom ? 88 : 64 : engine.Settings.ActiveIslandSize;
             if (tasks.Count != activeCount || size != activeSize) { ShowAt(lastWork); return; }
             thumbnail.Update(tasks.Count > 0 ? tasks[0] : null, tasks.Count);
         }

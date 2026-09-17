@@ -17,6 +17,7 @@ namespace FreeIsland
     public sealed class ControlWindow : Window
     {
         private readonly CoreEngine engine;
+        private readonly UpdateService updater;
         private readonly Action previewIsland, restoreBall, openPresentation;
         private readonly bool classroom;
         private readonly DispatcherTimer refreshTimer;
@@ -37,8 +38,9 @@ namespace FreeIsland
         private double SmallSize { get { return classroom ? 16 : 12; } }
         private double TargetHeight { get { return classroom ? 54 : 40; } }
 
-        public ControlWindow(CoreEngine engine, Action previewIsland, Action restoreBall, Action openPresentation)
+        public ControlWindow(CoreEngine engine, Action previewIsland, Action restoreBall, Action openPresentation, UpdateService updater = null)
         {
+            this.updater = updater;
             this.engine = engine; this.previewIsland = previewIsland; this.restoreBall = restoreBall; this.openPresentation = openPresentation;
             classroom = engine.Settings.Scene == UsageScene.Classroom;
             Title = "浮岛 · 控制中心";
@@ -324,11 +326,11 @@ namespace FreeIsland
             var sizes = new WrapPanel();
             var dotField = Field("小黑点大小（0–100%）", dotControls, classroom ? 34 : 28); dotField.Margin = new Thickness(0, 0, classroom ? 34 : 28, 10); sizes.Children.Add(dotField);
             var islandField = Field("展开大小（75–150%）", SizeStepper(islandSize, 75, 150, 5, "展开大小")); islandField.Margin = new Thickness(0, 0, 0, 10); sizes.Children.Add(islandField); placement.Children.Add(sizes);
-            var activeSize = TimeSlider("ActiveIslandSizeSlider", "任务缩略球直径", engine.Settings.ActiveIslandSize == 0 ? (classroom ? 48 : 36) : engine.Settings.ActiveIslandSize, 50); activeSize.Minimum = 30;
+            var activeSize = TimeSlider("ActiveIslandSizeSlider", "任务缩略球直径", engine.Settings.ActiveIslandSize == 0 ? (classroom ? 88 : 64) : engine.Settings.ActiveIslandSize, 160); activeSize.Minimum = 40;
             var automaticSize = Check("任务缩略球跟随使用场景", engine.Settings.ActiveIslandSize == 0); automaticSize.Name = "ActiveIslandSizeAuto";
-            automaticSize.Checked += delegate { activeSize.Value = classroom ? 48 : 36; activeSize.IsEnabled = false; }; automaticSize.Unchecked += delegate { activeSize.IsEnabled = true; }; activeSize.IsEnabled = engine.Settings.ActiveIslandSize != 0;
+            automaticSize.Checked += delegate { activeSize.Value = classroom ? 88 : 64; activeSize.IsEnabled = false; }; automaticSize.Unchecked += delegate { activeSize.IsEnabled = true; }; activeSize.IsEnabled = engine.Settings.ActiveIslandSize != 0;
             placement.Children.Add(automaticSize); placement.Children.Add(TouchNumber("任务球 · px", activeSize));
-            placement.Children.Add(T("有任务时自动放大为 30–50 像素；默认教室 48、电脑 36。无任务时恢复小黑点大小。调整后点击应用。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 1, 0, 12)));
+            placement.Children.Add(T("有任务时自动放大为 40–160 像素；默认教室 88、电脑 64。无任务时恢复小黑点大小。调整后点击应用。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 1, 0, 12)));
             var sizeActions = new WrapPanel();
             var applySize = Btn("应用大小", delegate
             {
@@ -337,11 +339,37 @@ namespace FreeIsland
                 engine.Settings.IslandDotPercent = (int)Math.Round(dotSize.Value); engine.Settings.IslandScale = percent / 100.0; engine.Settings.ActiveIslandSize = automaticSize.IsChecked == true ? 0 : (int)Math.Round(activeSize.Value); engine.SaveSettings(); Notify("灵动岛大小已保存。");
             }, true);
             applySize.Name = "ApplyIslandSize"; sizeActions.Children.Add(applySize);
-            var resetSize = Btn("恢复默认大小", delegate { dotSize.Value = 20; islandSize.Text = "100"; automaticSize.IsChecked = true; activeSize.Value = classroom ? 48 : 36; engine.Settings.IslandDotPercent = 20; engine.Settings.IslandScale = 1; engine.Settings.ActiveIslandSize = 0; engine.SaveSettings(); Notify("已恢复默认黑点、展开大小和任务球尺寸。"); }, false, new Thickness(10, 0, 0, 0));
+            var resetSize = Btn("恢复默认大小", delegate { dotSize.Value = 20; islandSize.Text = "100"; automaticSize.IsChecked = true; activeSize.Value = classroom ? 88 : 64; engine.Settings.IslandDotPercent = 20; engine.Settings.IslandScale = 1; engine.Settings.ActiveIslandSize = 0; engine.SaveSettings(); Notify("已恢复默认黑点、展开大小和任务球尺寸。"); }, false, new Thickness(10, 0, 0, 0));
             resetSize.Name = "ResetIslandSize"; sizeActions.Children.Add(resetSize);
             placement.Children.Add(sizeActions); page.Children.Add(Surface(placement, classroom ? 20 : 21));
             var preferences = new StackPanel(); preferences.Children.Add(Setting("开机自启动", "登录 Windows 后静默启动，不弹出控制中心。", engine.Settings.AutoStart, delegate(bool value) { if (!engine.IsSafeMode) StartupRegistration.SetEnabled(value); engine.Settings.AutoStart = value; engine.SaveSettings(); })); preferences.Children.Add(Divider(classroom ? 14 : 16)); preferences.Children.Add(Setting("提醒声音", "倒计时结束、日程到时发出提示音。", engine.Settings.SoundEnabled, delegate(bool value) { engine.Settings.SoundEnabled = value; engine.SaveSettings(); })); preferences.Children.Add(Divider(classroom ? 14 : 16)); preferences.Children.Add(Setting("悬浮球靠边隐藏", "拖到屏幕边缘后收起，仅保留小箭头。", engine.Settings.EdgeHide, delegate(bool value) { engine.Settings.EdgeHide = value; engine.SaveSettings(); })); var settings = Surface(preferences, classroom ? 20 : 21); settings.Margin = new Thickness(0, classroom ? 16 : 20, 0, 0); page.Children.Add(settings);
+            AddUpdateSettings(page);
             var actions = new WrapPanel(); actions.Children.Add(IconButton("home", "找回悬浮球", delegate { restoreBall(); Notify("悬浮球已回到可见位置。"); }, true)); var preview = IconButton("expand", "预览灵动岛", delegate { previewIsland(); }); preview.Margin = new Thickness(10, 0, 0, 0); actions.Children.Add(preview); ReserveActions(actions);
+        }
+
+        private void AddUpdateSettings(StackPanel page)
+        {
+            var updates = new StackPanel();
+            updates.Children.Add(Setting("自动更新", "从官方 GitHub 下载并校验新版本；计时和关机预约结束、控制中心收起后安装。", engine.Settings.AutoUpdate, delegate(bool value) { engine.Settings.AutoUpdate = value; engine.SaveSettings(); if (updater != null) updater.PreferencesChanged(); }));
+            updates.Children.Add(T("当前版本 " + (updater == null ? System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3) : updater.CurrentVersion) + " · 每 6 小时检查，安装后静默重启。便携版需手动安装。", SmallSize, muted, FontWeights.Normal, new Thickness(0, 10, 0, 0)));
+            var status = T("", SmallSize, ink, FontWeights.Medium, new Thickness(0, 12, 0, 10)); status.Name = "UpdateStatus"; updates.Children.Add(status);
+            var progress = new ProgressBar { Name = "UpdateProgress", Minimum = 0, Maximum = 100, Height = 8, Foreground = accent, Background = line, Margin = new Thickness(0, 0, 0, 12) }; updates.Children.Add(progress);
+            var actions = new WrapPanel();
+            var check = Btn("检查更新", delegate { if (updater != null) { var ignored = updater.CheckAsync(true); } }); check.Name = "CheckForUpdates"; actions.Children.Add(check);
+            var cancel = Btn("取消下载", delegate { if (updater != null) updater.Cancel(); }, false, new Thickness(10, 0, 0, 0)); cancel.Name = "CancelUpdateDownload"; actions.Children.Add(cancel);
+            var install = Btn("手动安装更新", delegate { if (updater != null) updater.InstallManually(); }, true, new Thickness(10, 0, 0, 0)); install.Name = "InstallDownloadedUpdate"; actions.Children.Add(install); updates.Children.Add(actions);
+            updatePage = delegate
+            {
+                bool available = updater != null && !updater.Disabled;
+                status.Text = updater == null ? "安全预览中，不联网、不下载或安装更新。" : updater.Status + (updater.IsBusy && updater.Progress > 0 ? " " + updater.Progress + "%" : "");
+                check.IsEnabled = available && !updater.IsBusy;
+                cancel.Visibility = available && updater.IsBusy ? Visibility.Visible : Visibility.Collapsed;
+                install.Visibility = available && updater.HasDownload ? Visibility.Visible : Visibility.Collapsed;
+                install.IsEnabled = available && !updater.HasActiveWork;
+                progress.Visibility = available && updater.IsBusy ? Visibility.Visible : Visibility.Collapsed;
+                progress.IsIndeterminate = available && updater.IsBusy && updater.Progress == 0; progress.Value = updater == null ? 0 : updater.Progress;
+            };
+            var surface = Surface(updates, classroom ? 20 : 21); surface.Margin = new Thickness(0, classroom ? 16 : 20, 0, 0); page.Children.Add(surface);
         }
 
         private void SaveGlassSettings()
@@ -511,7 +539,7 @@ namespace FreeIsland
         private Button IconButton(string icon, string label, Action action, bool primary = false) { var button = Btn("", action, primary); button.Content = IconLabel(icon, label, primary ? Brushes.White : ink, BodySize); System.Windows.Automation.AutomationProperties.SetName(button, label); return button; }
         private StackPanel IconLabel(string icon, string label, Brush brush, double size) { var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center }; var drawing = AppVisual.Icon(icon, classroom ? 23 : 19, brush); drawing.VerticalAlignment = VerticalAlignment.Center; drawing.Margin = new Thickness(0, 0, classroom ? 10 : 8, 0); panel.Children.Add(drawing); var text = T(label, size, brush, FontWeights.Medium); text.VerticalAlignment = VerticalAlignment.Center; text.TextWrapping = TextWrapping.NoWrap; panel.Children.Add(text); return panel; }
         private Button TextButton(string label, Action action) { var button = Btn(label, action); button.Foreground = accent; button.Background = Brushes.Transparent; button.BorderBrush = Brushes.Transparent; button.FontSize = SmallSize; button.Padding = new Thickness(10, 0, 10, 0); button.MinHeight = classroom ? 48 : 32; return button; }
-        private Button WindowButton(string icon, string label, Action action) { var button = Btn("", action); button.Content = AppVisual.Icon(icon, classroom ? 19 : 16, muted); button.Width = classroom ? 46 : 34; button.MinHeight = classroom ? 48 : 36; button.Padding = new Thickness(0); button.Margin = new Thickness(1, 0, 0, 0); button.Background = Brushes.Transparent; button.BorderBrush = Brushes.Transparent; button.ToolTip = label; System.Windows.Automation.AutomationProperties.SetName(button, label); return button; }
+        private Button WindowButton(string icon, string label, Action action) { var button = Btn("", action); button.Content = AppVisual.Icon(icon, classroom ? 19 : 16, muted); button.Width = classroom ? 46 : 34; button.MinHeight = classroom ? 88 : 64; button.Padding = new Thickness(0); button.Margin = new Thickness(1, 0, 0, 0); button.Background = Brushes.Transparent; button.BorderBrush = Brushes.Transparent; button.ToolTip = label; System.Windows.Automation.AutomationProperties.SetName(button, label); return button; }
         private TextBox Input(string value, double width)
         {
             var box = new TextBox { Text = value, Width = width, MinHeight = TargetHeight, Background = Brushes.White, Foreground = ink, Padding = new Thickness(classroom ? 14 : 11, 9, classroom ? 14 : 11, 9), FontSize = BodySize, CaretBrush = accent, SelectionBrush = B("#CDD6FF"), VerticalContentAlignment = VerticalAlignment.Center };

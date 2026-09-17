@@ -36,6 +36,8 @@ namespace FreeIsland
         [DataMember] public string IslandScreen { get; set; }
         [DataMember] public int IslandDotSize { get; set; }
         [DataMember] public int ActiveIslandSize { get; set; }
+        [DataMember] public int ActiveIslandSizeVersion { get; set; }
+        [DataMember] public bool AutoUpdate { get; set; }
         private int islandDotPercent;
         private bool hasSavedDotPercent;
         [DataMember] public int IslandDotPercent
@@ -71,10 +73,13 @@ namespace FreeIsland
         [OnDeserializing] private void BeforeRead(StreamingContext context)
         {
             SetDefaults();
+            ActiveIslandSizeVersion = 0;
             IslandDotSize = 4; // An absent old field used the former four-pixel default.
         }
         [OnDeserialized] private void AfterRead(StreamingContext context)
         {
+            if (ActiveIslandSizeVersion < 2 && ActiveIslandSize >= 30 && ActiveIslandSize <= 50) ActiveIslandSize = 0;
+            ActiveIslandSizeVersion = 2;
             if (!hasSavedDotPercent)
                 IslandDotPercent = IslandDotSize >= 3 && IslandDotSize <= 20 && IslandDotSize != 4
                     ? ((IslandDotSize - 3) * 100 + 8) / 17 : 20;
@@ -91,6 +96,8 @@ namespace FreeIsland
             hasSavedDotPercent = false;
             IslandDotSize = 6;
             ActiveIslandSize = 0;
+            ActiveIslandSizeVersion = 2;
+            AutoUpdate = true;
             GlassMode = 1;
             GlassRefraction = 50;
             GlassTransparency = 65;
@@ -579,7 +586,8 @@ namespace FreeIsland
                 Settings.IslandAnchor = 0.5;
             if (Settings.IslandDotPercent < 0 || Settings.IslandDotPercent > 100) Settings.IslandDotPercent = 20;
             Settings.IslandDotSize = 3 + (17 * Settings.IslandDotPercent + 50) / 100;
-            if (Settings.ActiveIslandSize < 30 || Settings.ActiveIslandSize > 50) Settings.ActiveIslandSize = 0;
+            if (Settings.ActiveIslandSize < 40 || Settings.ActiveIslandSize > 160) Settings.ActiveIslandSize = 0;
+            Settings.ActiveIslandSizeVersion = 2;
             if (Settings.GlassMode < 0 || Settings.GlassMode > 2) Settings.GlassMode = 1;
             Settings.GlassRefraction = Math.Max(0, Math.Min(100, Settings.GlassRefraction));
             Settings.GlassTransparency = Math.Max(0, Math.Min(100, Settings.GlassTransparency));

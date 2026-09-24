@@ -40,3 +40,5 @@ AI 只接收前台程序的进程名称和用户选择的教室/电脑场景。�
 - 系统音量使用 Windows [IAudioEndpointVolume](https://learn.microsoft.com/en-us/windows/win32/api/endpointvolume/nf-endpointvolume-iaudioendpointvolume-setmastervolumelevelscalar)。
 
 测试与实测范围见 [VERIFICATION.md](VERIFICATION.md)。模型权重、测试下载缓存与运行时二进制不会进入源码包或安装包。
+
+下载域名按 Hugging Face [官方分发清单](https://huggingface.co/.well-known/meta.json) 逐项允许（2026-09-24），不使用通配域名。v1.0.9 修复了官方 CDN 跳转误拦；遇到未知域名会显示该域名，固定大小和 SHA-256 校验仍保持启用。

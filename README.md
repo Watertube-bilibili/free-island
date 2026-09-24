@@ -6,8 +6,8 @@
 
 Win7 专版的应用和安装器使用原生 Win32 C++ / GDI+，支持 32 位和 64 位 Windows 7，不需要 .NET Framework 或 Visual C++ Redistributable。
 
-- 安装包：`dist/FreeIsland-Win7-Setup-1.0.8.exe`
-- 免安装包：`dist/FreeIsland-Win7-Portable-1.0.8.zip`
+- 安装包：`dist/FreeIsland-Win7-Setup-1.0.9.exe`
+- 免安装包：`dist/FreeIsland-Win7-Portable-1.0.9.zip`
 - [Win7 使用与卸载说明](win7/README.md)、[构建工具链说明](tools/TOOLCHAIN.md)；校验值在 `dist/SHA256SUMS-Win7.txt`。
 - 已公开发布的版本见 [GitHub Releases](https://github.com/Watertube-bilibili/free-island/releases)。本地构建版本以安装包文件名为准。
 
@@ -17,7 +17,7 @@ Win7 专版的应用和安装器使用原生 Win32 C++ / GDI+，支持 32 位和
 
 ## Windows 10 / 11 WPF 版：安装与运行
 
-1. 运行 `dist/FreeIsland-Setup-1.0.8.exe`，输入安装位置或点「浏览」选择文件夹，然后点击「安装浮岛」。
+1. 运行 `dist/FreeIsland-Setup-1.0.9.exe`，输入安装位置或点「浏览」选择文件夹，然后点击「安装浮岛」。
 2. 默认勾选「开机静默启动」和「创建桌面快捷方式」，可以按需取消。
 3. 安装后从桌面或开始菜单打开「浮岛」。管理员重试完成后点击「完成」，再从桌面或开始菜单启动应用。
 
@@ -25,9 +25,13 @@ Win7 专版的应用和安装器使用原生 Win32 C++ / GDI+，支持 32 位和
 
 升级默认沿用已有目录。改到新目录安装时，旧目录文件会保留，同一版本的设置和日程继续共用；当前账户的浮岛快捷方式和自启动项按所选选项更新。请选择空文件夹或原浮岛安装文件夹。卸载窗口会显示要移除的路径，默认保留本地设置。
 
-免安装版为 `dist/FreeIsland-Portable-1.0.8.zip`。解压到固定目录后运行 `FreeIsland.exe`。如开启开机启动，请勿移动或删除该目录；移动后可在新位置重新关闭并开启自启动。
+免安装版为 `dist/FreeIsland-Portable-1.0.9.zip`。解压到固定目录后运行 `FreeIsland.exe`。如开启开机启动，请勿移动或删除该目录；移动后可在新位置重新关闭并开启自启动。
 
 运行环境：Windows 10 1507（Build 10240）及以后版本 / Windows 11，.NET Framework 4.6 或更新版本。初代 Windows 10 已自带 .NET Framework 4.6，无需为本版升级至 4.8；精简系统若移除了该组件，需要先修复运行环境。应用与安装器未进行商业代码签名，Windows 可能显示「未知发布者」提示。发行文件的 SHA-256 校验值见 `dist/SHA256SUMS.txt`。
+
+## v1.0.9 · 模型下载修复（2026-09-24）
+
+修复 Hugging Face 官方 CDN 跳转被误报为「下载重定向被拒绝」。升级后在本地助手重新点击安装即可；继续验证固定版本的大小、SHA-256 与 GGUF 格式。Win7 原生版同步版本号，功能不变。
 
 ## v1.0.8 · 本地助手与自定义音频（2026-09-24）
 
@@ -80,7 +84,7 @@ Win7 专版的应用和安装器使用原生 Win32 C++ / GDI+，支持 32 位和
 
 「折射度」控制背景弯曲强度，仅在水滴模式生效；「透明度」越高材质越清透；「边缘高光」控制水滴边缘的明亮程度。WPF 版停止调整约半秒后自动保存，可用「预览玻璃」查看展开的灵动岛；关闭玻璃后参数保留并暂时禁用，重新开启即可继续使用。悬浮球、灵动岛与收起的小水滴使用同一组参数，文字衬底不随材质透明度变淡。
 
-两版支持自选安装目录。Win10/11 版按需处理只读文件，区分文件占用、权限拒绝和回滚失败。安装和卸载在权限拒绝时支持用户选择管理员重试。`dist/FreeIsland-Uninstall-1.0.8.exe` 是独立卸载工具，可读取已有安装记录并显示确认窗口，无需先覆盖旧程序。
+两版支持自选安装目录。Win10/11 版按需处理只读文件，区分文件占用、权限拒绝和回滚失败。安装和卸载在权限拒绝时支持用户选择管理员重试。`dist/FreeIsland-Uninstall-1.0.9.exe` 是独立卸载工具，可读取已有安装记录并显示确认窗口，无需先覆盖旧程序。
 
 “访问被拒绝”仍可能由具体文件权限或系统保护造成；本版不会修改文件 ACL 或关闭安全软件。
 
@@ -150,7 +154,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 安装包还支持仅提取并校验内嵌文件的验证模式，不安装、不启动应用、不创建快捷方式、不写入注册表：
 
 ```powershell
-.\dist\FreeIsland-Setup-1.0.8.exe --verify-payload "D:\free island\artifacts\payload-check"
+.\dist\FreeIsland-Setup-1.0.9.exe --verify-payload "D:\free island\artifacts\payload-check"
 ```
 
 UI 调试可使用应用的安全模式（演示关机，不会真正关闭 Windows）：

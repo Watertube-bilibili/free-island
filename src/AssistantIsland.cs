@@ -14,8 +14,9 @@ namespace FreeIsland
             var body = new StackPanel();
             var header = new DockPanel();
             var close = SurfaceStyle.Button("收起", delegate { island.DismissAssistant(); island.Collapse(); }, "#EEF1FF"); close.MinHeight = 36; DockPanel.SetDock(close, Dock.Right); header.Children.Add(close);
+            var chat = SurfaceStyle.Button("问浮岛", delegate { navigate("chat"); }, "#EEF1FF"); chat.MinHeight = 44; chat.Margin = new Thickness(0, 0, 6, 0); DockPanel.SetDock(chat, Dock.Right); header.Children.Add(chat);
             var heading = SurfaceStyle.Text(suggestion.Source, 16, "#18243A"); heading.FontWeight = FontWeights.SemiBold; heading.TextAlignment = TextAlignment.Left; heading.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(heading); body.Children.Add(header);
-            var status = SurfaceStyle.Text("识别应用：" + suggestion.ProcessName, 12, "#58657A"); status.TextAlignment = TextAlignment.Left; status.TextTrimming = TextTrimming.CharacterEllipsis; body.Children.Add(status);
+            var status = SurfaceStyle.Text(String.IsNullOrEmpty(suggestion.ContextDescription) ? "识别应用：" + suggestion.ProcessName : suggestion.ContextDescription, 12, "#58657A"); status.TextAlignment = TextAlignment.Left; status.TextTrimming = TextTrimming.CharacterEllipsis; status.ToolTip = status.Text; body.Children.Add(status);
             double rowHeight = 0; DateTime expires = DateTime.UtcNow.AddSeconds(90);
             foreach (var proposal in suggestion.Actions.Take(3))
             {
@@ -25,6 +26,7 @@ namespace FreeIsland
                     int current = 50; bool available = engine.IsSafeMode || SystemVolume.TryGet(out current);
                     var label = SurfaceStyle.Text(available ? "系统音量  " + current + "%" : "未找到可调节的音频设备", 14, "#18243A"); label.TextAlignment = TextAlignment.Left; label.Margin = new Thickness(0, 6, 0, 0); body.Children.Add(label);
                     var slider = new Slider { Name = "AssistantVolume", Minimum = 0, Maximum = 100, Value = current, IsEnabled = available, IsMoveToPointEnabled = true, SmallChange = 1, LargeChange = 5, MinHeight = 44, VerticalAlignment = VerticalAlignment.Center };
+                    ControlWindow.ApplyTouchSlider(slider);
                     System.Windows.Automation.AutomationProperties.SetName(slider, "系统音量");
                     slider.ValueChanged += delegate
                     {
@@ -41,7 +43,8 @@ namespace FreeIsland
                         if (DateTime.UtcNow > expires) { status.Text = "建议已过期，请切换应用后重试。"; return; }
                         if (action.Kind == "media_toggle")
                         {
-                            if (!engine.IsSafeMode && !String.Equals(LocalAiContext.ForegroundProcessName(), suggestion.ProcessName, StringComparison.OrdinalIgnoreCase)) { status.Text = "播放器已切换，请重新打开播放器。"; return; }
+                            string currentProcess = LocalAiContext.ForegroundProcessName();
+                            if (!engine.IsSafeMode && currentProcess.Length > 0 && !String.Equals(currentProcess, suggestion.ProcessName, StringComparison.OrdinalIgnoreCase)) { status.Text = "播放器已切换，请重新打开播放器。"; return; }
                             if (!engine.IsSafeMode) SystemVolume.ToggleMedia();
                             status.Text = engine.IsSafeMode ? "演示：播放 / 暂停" : "已发送系统媒体键"; island.KeepOpenAfterDrag();
                         }

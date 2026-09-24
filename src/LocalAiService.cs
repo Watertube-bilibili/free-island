@@ -195,6 +195,14 @@ namespace FreeIsland
         public Task<IList<LocalAiAction>> SuggestAsync(string processName, string scene, CancellationToken token)
         {
             string body = LocalAiActionRules.Request(processName, scene);
+            return SuggestBodyAsync(body, token);
+        }
+        public Task<IList<LocalAiAction>> SuggestContextAsync(string context, string scene, CancellationToken token)
+        {
+            return SuggestBodyAsync(LocalAiConversationRules.ContextRequest(context, scene), token);
+        }
+        private Task<IList<LocalAiAction>> SuggestBodyAsync(string body, CancellationToken token)
+        {
             IList<LocalAiAction> result = null;
             return Run(delegate(CancellationToken ct)
             {
@@ -208,6 +216,49 @@ namespace FreeIsland
                 }
                 State("本地 AI 已就绪 · 操作等待点击", 1);
             }, token).ContinueWith<IList<LocalAiAction>>(task => { task.GetAwaiter().GetResult(); return result; }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+        public Task<LocalAiReply> ChatAsync(string userText, string context, IList<LocalAiTurn> history, CancellationToken token)
+        {
+            var prompt = LocalAiConversationRules.Prepare(userText, context, history);
+            LocalAiReply result = null;
+            return Run(delegate(CancellationToken ct)
+            {
+                RequireSupport(); if (!IsRunning) throw new InvalidOperationException("请先启动已安装的本地模型。");
+                State("正在思考你的问题…", 1);
+                using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                {
+                    deadline.CancelAfter(TimeSpan.FromSeconds(30));
+                    try
+                    {
+                        // Count the actual pinned model's template tokens rather than assuming a
+                        // Latin character/token ratio for Chinese text. All requests stay on localhost.
+                        for (int attempt = 0; attempt < 2; attempt++)
+                        {
+                            bool fits = true;
+                            while (true)
+                            {
+                                deadline.Token.ThrowIfCancellationRequested();
+                                string applied = LocalAiConversationRules.TemplatePrompt(Send("/apply-template", Encoding.UTF8.GetBytes(prompt.TemplateRequest()), deadline.Token, 5000, 32768));
+                                string tokenize = "{\"content\":" + LocalAiActionRules.Escape(applied) + ",\"add_special\":true,\"parse_special\":true,\"with_pieces\":false}";
+                                int count = LocalAiConversationRules.TokenCount(Send("/tokenize", Encoding.UTF8.GetBytes(tokenize), deadline.Token, 5000, 65536));
+                                if (count <= LocalAiConversationRules.MaximumPromptTokens) break;
+                                if (!prompt.TrimForBudget())
+                                {
+                                    if (attempt > 0) { fits = false; break; }
+                                    throw new ArgumentException("这条消息超出了小模型的上下文容量，请缩短后再试。", "userText");
+                                }
+                            }
+                            if (!fits) break;
+                            result = LocalAiConversationRules.ParseChat(Send("/v1/chat/completions", Encoding.UTF8.GetBytes(prompt.Request()), deadline.Token, 30000, 32768));
+                            if (attempt != 0 || !LocalAiConversationRules.NeedsActionRepair(result)) break;
+                            prompt.ActionDraftText = LocalAiConversationRules.Clip(result.Text, 160);
+                        }
+                        result = LocalAiConversationRules.WithoutMissingActionPromise(result);
+                    }
+                    catch { if (deadline.IsCancellationRequested) { StopRunner(); throw new OperationCanceledException("对话已取消或超过 30 秒，模型已停止。", deadline.Token); } throw; }
+                }
+                State("本地 AI 已回复 · 快捷操作等待点击", 1);
+            }, token).ContinueWith<LocalAiReply>(task => { task.GetAwaiter().GetResult(); return result; }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
         private byte[] Send(string path, byte[] body, CancellationToken token, int timeout, int maximum)
         {

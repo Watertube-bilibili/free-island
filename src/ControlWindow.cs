@@ -35,6 +35,7 @@ namespace FreeIsland
         private DateTime feedbackUntil;
         private string currentPage = "home";
         public bool AllowClose { get; set; }
+        public event Action ChatRequested;
         public string CurrentPage { get { return currentPage; } }
         private double BodySize { get { return classroom ? 20 : 14; } }
         private double SmallSize { get { return classroom ? 16 : 12; } }
@@ -547,6 +548,11 @@ namespace FreeIsland
             };
             System.Windows.Automation.AutomationProperties.SetName(slider, "黑点大小");
             System.Windows.Automation.AutomationProperties.SetHelpText(slider, "0 到 100%，默认 20%。可拖动或使用方向键微调，点击应用大小后保存。");
+            ApplyTouchSlider(slider);
+            return slider;
+        }
+        internal static void ApplyTouchSlider(Slider slider)
+        {
             const string markup = @"
 <ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='{x:Type Slider}'>
 <Grid Background='Transparent'>
@@ -570,7 +576,6 @@ namespace FreeIsland
             slider.PreviewTouchDown += delegate(object sender, TouchEventArgs e) { slider.Focus(); slider.CaptureTouch(e.TouchDevice); touchValue(e); e.Handled = true; };
             slider.PreviewTouchMove += delegate(object sender, TouchEventArgs e) { if (e.TouchDevice.Captured == slider) { touchValue(e); e.Handled = true; } };
             slider.PreviewTouchUp += delegate(object sender, TouchEventArgs e) { if (e.TouchDevice.Captured == slider) { touchValue(e); slider.ReleaseTouchCapture(e.TouchDevice); e.Handled = true; } };
-            return slider;
         }
         private FrameworkElement SizeStepper(TextBox input, int minimum, int maximum, int step, string name)
         {

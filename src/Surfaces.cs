@@ -57,16 +57,17 @@ namespace FreeIsland
             window.BeginAnimation(Window.LeftProperty, new DoubleAnimation(origin.X, window.Left, TimeSpan.FromMilliseconds(220)) { FillBehavior = FillBehavior.Stop, EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
             window.BeginAnimation(Window.TopProperty, new DoubleAnimation(origin.Y, window.Top, TimeSpan.FromMilliseconds(220)) { FillBehavior = FillBehavior.Stop, EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
         }
-        public static Button Button(string title, Action action, string fill)
+        public static Button Button(string title, Action action, string fill, bool primary = false)
         {
-            var button = new Button { Content = title, Background = Brush(fill), Foreground = Brush("#263553"), BorderThickness = new Thickness(0), Padding = new Thickness(12, 6, 12, 6), MinHeight = 34, Cursor = Cursors.Hand, FontSize = 12 };
+            var button = new Button { Content = title, Background = Brush(fill), Foreground = Brush(primary ? "#FFFFFF" : "#263553"), BorderThickness = new Thickness(0), Padding = new Thickness(12, 6, 12, 6), MinHeight = 34, Cursor = Cursors.Hand, FontSize = 12 };
             var template = new ControlTemplate(typeof(Button));
             var border = new FrameworkElementFactory(typeof(Border)); border.SetValue(Border.CornerRadiusProperty, new CornerRadius(12));
             border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
             var presenter = new FrameworkElementFactory(typeof(ContentPresenter)); presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center); presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center); presenter.SetValue(FrameworkElement.MarginProperty, new Thickness(8, 5, 8, 5));
             border.AppendChild(presenter); template.VisualTree = border;
             var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            border.Name = "Surface"; hover.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#E2E9F8"), "Surface")); template.Triggers.Add(hover);
+            border.Name = "Surface"; hover.Setters.Add(new Setter(Border.BackgroundProperty, Brush(primary ? "#4258D4" : "#E2E9F8"), "Surface")); template.Triggers.Add(hover);
+            if (primary) { var pressed = new Trigger { Property = System.Windows.Controls.Primitives.ButtonBase.IsPressedProperty, Value = true }; pressed.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#3448BA"), "Surface")); template.Triggers.Add(pressed); }
             var focus = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true };
             focus.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#263DAF"), "Surface")); focus.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(2), "Surface")); template.Triggers.Add(focus);
             button.Template = template; button.PreviewMouseLeftButtonDown += delegate { if (!UsesOpticalMaterial(button)) Scale(button, 1, .96, 95); };
@@ -275,7 +276,11 @@ namespace FreeIsland
             }
             var center = new StackPanel { Width = 84 };
             centerOrb = new ContentControl { Width = 54, Height = 54, Cursor = Cursors.Hand, HorizontalAlignment = HorizontalAlignment.Center };
-            centerOrb.MouseLeftButtonUp += delegate { Dismiss(); }; center.Children.Add(centerOrb);
+            centerOrb.MouseLeftButtonUp += delegate { Dismiss(); navigate("chat"); }; center.Children.Add(centerOrb);
+            centerOrb.ToolTip = "问浮岛 · 岛上对话";
+            var ask = SurfaceStyle.Button("问浮岛", delegate { Dismiss(); navigate("chat"); }, "#EEF1FF");
+            ask.MinHeight = 32; ask.Padding = new Thickness(0); ask.Margin = new Thickness(0, 3, 0, 0);
+            System.Windows.Automation.AutomationProperties.SetName(ask, "打开岛上对话"); center.Children.Add(ask);
             Canvas.SetLeft(center, 135); Canvas.SetTop(center, 142); canvas.Children.Add(center);
             Content = canvas;
             Deactivated += delegate { Dismiss(); };
@@ -363,7 +368,9 @@ namespace FreeIsland
         private readonly List<IslandTaskCard> taskCards = new List<IslandTaskCard>();
         private bool tasksMode, noticeVisible;
         private Border assistantCard;
+        private LiquidGlassSurface assistantMaterial;
         private double assistantHeight;
+        private bool assistantInteractive;
 
         public IslandWindow(CoreEngine engine, Action<string> navigate, Action<Point> dropped)
         {
@@ -393,7 +400,7 @@ namespace FreeIsland
             taskStack = new StackPanel(); taskStack.Children.Add(card);
             surface = new Grid { Width = 440, Height = 102 }; surface.Children.Add(taskStack); Content = surface;
             hideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-            hideTimer.Tick += delegate { if (!urgent && !pointerDown && !IsMouseOver && DateTime.UtcNow >= visibleUntil) Collapse(); };
+            hideTimer.Tick += delegate { if (!assistantInteractive && !urgent && !pointerDown && !IsMouseOver && DateTime.UtcNow >= visibleUntil) Collapse(); };
             MouseEnter += delegate { visibleUntil = DateTime.UtcNow.AddSeconds(4); };
             MouseLeave += delegate { if (!urgent) visibleUntil = DateTime.UtcNow.AddSeconds(3); };
             card.Cursor = Cursors.SizeAll;
@@ -429,9 +436,10 @@ namespace FreeIsland
             {
                 var source = PresentationSource.FromVisual(this) as HwndSource;
                 if (source != null) source.AddHook(delegate(IntPtr hwnd, int message, IntPtr wp, IntPtr lp, ref bool handled)
-                { if (message == 0x0021) { handled = true; return new IntPtr(3); } return IntPtr.Zero; });
+                { if (message == 0x0021 && !assistantInteractive) { handled = true; return new IntPtr(3); } return IntPtr.Zero; });
                 Reposition();
             };
+            PreviewKeyDown += delegate(object sender, KeyEventArgs e) { if (assistantInteractive && e.Key == Key.Escape) { DismissAssistant(); Collapse(); e.Handled = true; } };
             ApplyScene();
         }
         public void ApplyScene()
@@ -439,7 +447,7 @@ namespace FreeIsland
             ApplyMaterial();
             Reposition();
         }
-        public void ApplyMaterial() { if (materialMode == engine.Settings.GlassMode) return; materialMode = engine.Settings.GlassMode; material.Mode = materialMode; foreach (var row in taskCards) row.Material.Mode = materialMode; if (materialMode != 0) card.RenderTransform = Transform.Identity; card.Effect = materialMode == 2 ? new DropShadowEffect { BlurRadius = 15, Opacity = .14, ShadowDepth = 4, Color = Color.FromRgb(35, 51, 83) } : null; }
+        public void ApplyMaterial() { if (materialMode == engine.Settings.GlassMode) return; materialMode = engine.Settings.GlassMode; material.Mode = materialMode; if (assistantMaterial != null) assistantMaterial.Mode = materialMode; foreach (var row in taskCards) row.Material.Mode = materialMode; if (materialMode != 0) card.RenderTransform = Transform.Identity; card.Effect = materialMode == 2 ? new DropShadowEffect { BlurRadius = 15, Opacity = .14, ShadowDepth = 4, Color = Color.FromRgb(35, 51, 83) } : null; }
         private void SetIcon(string name)
         {
             if (iconName == name) return; iconName = name;
@@ -449,7 +457,7 @@ namespace FreeIsland
         }
         private static bool IsButtonSource(DependencyObject source)
         {
-            while (source != null) { if (source is System.Windows.Controls.Primitives.ButtonBase || source is Slider) return true; source = VisualTreeHelper.GetParent(source); }
+            while (source != null) { if (source is System.Windows.Controls.Primitives.ButtonBase || source is Slider || source is TextBox || source is ScrollViewer || source is System.Windows.Controls.Primitives.ScrollBar) return true; source = VisualTreeHelper.GetParent(source); }
             return false;
         }
         public void KeepOpenAfterDrag() { visibleUntil = DateTime.UtcNow.AddSeconds(7); }
@@ -531,20 +539,29 @@ namespace FreeIsland
         private void ClearAssistant()
         {
             if (assistantCard != null) taskStack.Children.Remove(assistantCard);
-            assistantCard = null; assistantHeight = 0;
+            assistantCard = null; assistantMaterial = null; assistantHeight = 0; assistantInteractive = false; ShowActivated = false;
         }
         public void DismissAssistant() { ClearAssistant(); if (tasksMode) UpdateTasks(); }
-        public void ShowAssistant(FrameworkElement body, double height)
+        internal void ResizeAssistant(double height)
+        {
+            if (assistantCard == null) return;
+            height = Math.Max(300, Math.Min(548, height));
+            assistantHeight = height; assistantCard.Height = height - 20; UpdateTasks();
+        }
+        internal void RefreshAssistantInk() { if (assistantMaterial != null) assistantMaterial.RefreshInk(); }
+        public void ShowAssistant(FrameworkElement body, double height, bool interactive = false)
         {
             if (engine.ShutdownRemaining.HasValue && engine.ShutdownRemaining.Value.TotalSeconds <= 30) return;
             ClearAssistant(); tasksMode = true; noticeVisible = false; card.Visibility = Visibility.Collapsed; activity = "";
-            var glass = new LiquidGlassSurface { Mode = engine.Settings.GlassMode, Radius = 28 };
+            assistantInteractive = interactive; ShowActivated = interactive;
+            var glass = new LiquidGlassSurface { Mode = engine.Settings.GlassMode, Radius = 28, Name = "AssistantGlassMaterial" }; assistantMaterial = glass;
             var layers = new Grid(); layers.Children.Add(glass);
             var backing = new Border { Child = body, Margin = new Thickness(16), Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(14) };
-            backing.SetValue(LiquidGlass.ReadablePanelProperty, true); layers.Children.Add(backing);
+            backing.SetValue(LiquidGlass.ReadablePanelProperty, !interactive); layers.Children.Add(backing);
             assistantCard = new Border { Child = layers, Margin = new Thickness(10), Height = height - 20, CornerRadius = new CornerRadius(28), Cursor = Cursors.SizeAll };
             LiquidGlass.Track(assistantCard, glass); assistantHeight = height; taskStack.Children.Insert(0, assistantCard);
             UpdateTasks(); Present(18);
+            if (interactive) Activate();
         }
         private void Act()
         {

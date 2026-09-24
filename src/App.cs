@@ -27,6 +27,8 @@ namespace FreeIsland
         private DispatcherTimer updateTicker;
         private UpdateService updater;
         private AssistantController assistant;
+        private AssistantChatView chatView;
+        private readonly System.Collections.Generic.List<LocalAiTurn> chatHistory = new System.Collections.Generic.List<LocalAiTurn>();
         private AlertAudioService alertAudio;
         private DispatcherTimer assistantTicker;
         private EventWaitHandle exitEvent, showEvent;
@@ -122,6 +124,7 @@ namespace FreeIsland
             assistant.Suggested += delegate(AssistantSuggestion suggestion) { if (!ending) AssistantIsland.Present(island, engine, suggestion, OpenPanel); };
             updater = new UpdateService(engine, delegate { return panel != null && panel.IsVisible || presentation != null && presentation.IsVisible || island != null && island.IsVisible || radial != null && radial.IsVisible || assistant.Service.IsBusy; }, ExitApp);
             panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation, updater, assistant, alertAudio);
+            panel.ChatRequested += OpenChat;
             MainWindow = panel;
             ApplyAppIcon(panel);
             radial = new RadialWindow(engine, OpenPanel, delegate { if (!ending) { ball.Show(); ball.ScheduleHide(); } });
@@ -139,7 +142,7 @@ namespace FreeIsland
             updateTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             updateTicker.Tick += delegate { updater.Poll(); };
             if (!safe) updateTicker.Start();
-            assistantTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            assistantTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             assistantTicker.Tick += delegate { assistant.Poll(); };
             if (!safe) assistantTicker.Start();
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += DisplayChanged;
@@ -191,6 +194,7 @@ namespace FreeIsland
             menu.Items.Add("打开控制中心", null, delegate { OpenPanel("home"); });
             menu.Items.Add("找回悬浮球", null, delegate { ball.RestorePosition(); });
             menu.Items.Add("显示当前计时", null, delegate { PreviewIsland(); });
+            menu.Items.Add("问浮岛 · 岛上对话", null, delegate { OpenChat(); });
             menu.Items.Add(new Forms.ToolStripSeparator());
             menu.Items.Add("取消预约关机", null, delegate { engine.CancelShutdown(); });
             menu.Items.Add("设置", null, delegate { OpenPanel("settings"); });
@@ -204,6 +208,8 @@ namespace FreeIsland
 
         private void OpenPanel(string page)
         {
+            if (page == "chat") { OpenChat(); return; }
+            if (assistant != null) assistant.RefreshContext();
             if (radial != null) radial.Dismiss();
             panel.Navigate(page);
             panel.Show();
@@ -213,9 +219,23 @@ namespace FreeIsland
 
         private void ToggleRadial()
         {
+            if (assistant != null) assistant.RefreshContext();
             if (radial.IsVisible) { radial.Dismiss(); return; }
             radial.OpenAt(ball.Left + ball.Width / 2, ball.Top + ball.Height / 2, ball.WorkArea);
             ball.Hide();
+        }
+
+        private void OpenChat()
+        {
+            if (ending || assistant == null) return;
+            if (engine.ShutdownRemaining.HasValue && engine.ShutdownRemaining.Value.TotalSeconds <= 30) { OpenPanel("shutdown"); return; }
+            assistant.RefreshContext();
+            if (radial != null) radial.Dismiss();
+            if (panel != null) panel.Hide();
+            if (chatView != null) chatView.CancelRequest();
+            chatView = new AssistantChatView(assistant, engine, island, OpenPanel, chatHistory);
+            island.ShowAssistant(chatView, 548, true);
+            chatView.FocusInput();
         }
 
         private void OpenPresentation()
@@ -234,6 +254,7 @@ namespace FreeIsland
             if (!island.IsVisible) islandHandle.ShowAt(island.LastWorkArea);
             panel.AllowClose = true; panel.Close();
             panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation, updater, assistant, alertAudio);
+            panel.ChatRequested += OpenChat;
             ApplyAppIcon(panel);
             MainWindow = panel; panel.Navigate(page);
             if (wasVisible) { panel.Show(); panel.Activate(); }
@@ -413,6 +434,7 @@ namespace FreeIsland
             if (updateTicker != null) updateTicker.Stop();
             if (updater != null) updater.Dispose();
             if (assistantTicker != null) assistantTicker.Stop();
+            if (chatView != null) chatView.CancelRequest();
             if (assistant != null) assistant.Dispose();
             if (engine != null)
             {

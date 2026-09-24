@@ -29,11 +29,31 @@ namespace FreeIsland
             else
             {
                 page.Children.Add(Setting("轻量场景快捷操作", "识别播放器、演示文稿和编辑器，提供音量、计时与日程入口。无需下载模型。", assistant.Preferences.RuleShortcutsEnabled, delegate(bool enabled) { assistant.Preferences.RuleShortcutsEnabled = enabled; assistant.Save(); }));
+                page.Children.Add(Setting("结合前台窗口标题识别场景", "可识别浏览器里的视频、网课与文档。只在本机使用标题，不读取页面正文、截图或剪贴板。", assistant.Preferences.IncludeWindowTitle, delegate(bool enabled) { assistant.Preferences.IncludeWindowTitle = enabled; assistant.Save(); }));
+                var chatEntry = Btn("打开岛上对话", delegate { var handler = ChatRequested; if (handler != null) handler(); }, true);
+                chatEntry.Margin = new Thickness(0, 12, 0, 6); page.Children.Add(chatEntry);
+                var recognized = T("", SmallSize, muted); page.Children.Add(recognized);
                 page.Children.Add(SectionTitle("可选本地模型"));
-                page.Children.Add(T("只读取前台应用的进程名称与已选场景，不读取窗口标题、屏幕、文档或剪贴板。模型可组合计时、音量、媒体控制和日程入口，不会自行运行代码或执行关机。", SmallSize, muted));
+                page.Children.Add(T("模型接收前台应用、识别的场景和已选使用模式；开启上方选项后会附带窗口标题。可在岛上连续对话、提出计时与音量操作，操作需点击确认。", SmallSize, muted));
                 string support = LocalAiService.GetSupportMessage();
                 if (!String.IsNullOrEmpty(support)) page.Children.Add(T(support, SmallSize, B("#80540A"), FontWeights.Medium, new Thickness(0, 10, 0, 8)));
                 var choices = new StackPanel { Margin = new Thickness(0, 14, 0, 14) };
+                var modelPath = new TextBox { IsReadOnly = true, Text = assistant.ModelDirectory, FontSize = SmallSize, Padding = new Thickness(8), MinHeight = TargetHeight, Background = Brushes.White, Foreground = ink, BorderBrush = line, TextWrapping = TextWrapping.Wrap };
+                System.Windows.Automation.AutomationProperties.SetName(modelPath, "模型与运行组件存储目录");
+                page.Children.Add(T("模型与运行组件存储目录", BodySize, ink, FontWeights.Medium, new Thickness(0, 12, 0, 6))); page.Children.Add(modelPath);
+                var pathActions = new WrapPanel { Margin = new Thickness(0, 8, 0, 6) };
+                var choosePath = Btn("选择目录", async delegate
+                {
+                    using (var picker = new System.Windows.Forms.FolderBrowserDialog { Description = "选择浮岛模型与运行组件目录。旧目录的文件保留。", SelectedPath = assistant.ModelDirectory, ShowNewFolderButton = true })
+                    {
+                        if (picker.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+                        string selectedPath = picker.SelectedPath;
+                        await RunAssistantAction(delegate { return assistant.SetModelDirectoryAsync(selectedPath); }, "模型目录已切换，请启用已下载模型或重新安装。旧文件已保留。", "目录未切换：");
+                    }
+                });
+                var resetPath = Btn("恢复默认目录", async delegate { await RunAssistantAction(delegate { return assistant.SetModelDirectoryAsync(null); }, "已恢复默认模型目录，请重新启用模型。旧文件已保留。", "目录未切换："); }, false, new Thickness(10, 0, 0, 0));
+                pathActions.Children.Add(choosePath); pathActions.Children.Add(resetPath); page.Children.Add(pathActions);
+                page.Children.Add(T("可选择 D 盘。切换会关闭模型；旧文件保留，切回原目录可继续使用。模型文件位于所选目录的 models 文件夹。", SmallSize, muted));
                 foreach (var model in LocalAiCatalog.Models)
                 {
                     var selectedModel = model;
@@ -62,11 +82,13 @@ namespace FreeIsland
                 updatePage = delegate
                 {
                     status.Text = assistant.Service.Status + (String.IsNullOrEmpty(assistant.LastError) ? "" : "\n" + assistant.LastError);
+                    recognized.Text = "最近识别：" + (assistant.LastContext == null ? "切换到要使用的应用后，再打开浮岛。" : assistant.LastContext.Description);
                     progress.Value = assistant.Service.Progress * 100;
                     progress.Visibility = assistant.Service.IsBusy ? Visibility.Visible : Visibility.Collapsed;
                     install.IsEnabled = support == null && !assistant.Service.IsBusy;
                     start.IsEnabled = support == null && !assistant.Service.IsBusy && assistant.Service.IsModelInstalled(assistant.Preferences.SelectedModelId);
                     choices.IsEnabled = !assistant.Service.IsBusy;
+                    modelPath.Text = assistant.ModelDirectory; choosePath.IsEnabled = resetPath.IsEnabled = !assistant.Service.IsBusy && !assistant.IsChatting;
                     stop.IsEnabled = assistant.Service.IsRunning || assistant.Preferences.Enabled;
                     cancel.IsEnabled = assistant.Service.IsBusy;
                 };
@@ -106,11 +128,11 @@ namespace FreeIsland
             string path = alertAudio.GetPath(kind);
             return String.IsNullOrEmpty(path) ? "默认提示音" : Path.GetFileName(path) + (File.Exists(path) ? "" : " · 文件不存在，将使用默认提示音");
         }
-        private async Task RunAssistantAction(Func<Task> action)
+        private async Task RunAssistantAction(Func<Task> action, string success = "本地模型已启用。", string failure = "模型未启用：")
         {
-            try { await action(); Notify("本地模型已启用。"); }
+            try { await action(); Notify(success); }
             catch (OperationCanceledException) { Notify("操作已取消。"); }
-            catch (Exception ex) { Notify("模型未启用：" + ex.Message, true); }
+            catch (Exception ex) { Notify(failure + ex.Message, true); }
         }
     }
 }

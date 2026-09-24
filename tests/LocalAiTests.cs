@@ -84,6 +84,18 @@ internal static class LocalAiTests
         Reject(delegate { LocalAiService.ServerArguments("model.gguf", 80); }, "Privileged/invalid ports rejected");
         foreach (string bad in new[] { "http://huggingface.co/a", "https://evil.test/a", "https://huggingface.co.evil.test/a", "https://a:h@huggingface.co/a", "https://huggingface.co:444/a", "https://github.com/a#b" }) Check(!LocalAiTransport.AllowedUri(new Uri(bad)), "Untrusted redirect rejected");
         foreach (string good in new[] { "https://huggingface.co/a", "https://release-assets.githubusercontent.com/a", "https://cas-bridge.xethub.hf.co/a" }) Check(LocalAiTransport.AllowedUri(new Uri(good)), "Official download delivery allowed");
+        string[] deliveryHosts = { "cdn-lfs.hf.co", "cdn-lfs-us-1.hf.co", "cdn-lfs-eu-1.hf.co", "transfer.xethub.hf.co", "transfer.xethub-eu.hf.co", "aws.cdn.hf.co", "us.aws.cdn.hf.co", "us-east-1.aws.cdn.hf.co", "us-west-2.aws.cdn.hf.co", "eu-west-3.aws.cdn.hf.co", "ap-southeast-1.aws.cdn.hf.co", "us.gcp.cdn.hf.co", "us-east1.us.gcp.cdn.hf.co", "us-central1.us.gcp.cdn.hf.co", "us-west4.us.gcp.cdn.hf.co", "europe-west4.us.gcp.cdn.hf.co", "asia-southeast1.us.gcp.cdn.hf.co" };
+        foreach (string host in deliveryHosts)
+        {
+            var redirected = LocalAiTransport.ResolveRedirect(LocalAiCatalog.Models[0].DownloadUrl, "https://" + host + "/model.gguf?X-Amz-Signature=public-fixture&Expires=1234");
+            Check(redirected.Host == host && redirected.Query.Contains("X-Amz-Signature"), "Official regional CDN redirect preserves signed query");
+        }
+        Check(LocalAiTransport.ResolveRedirect(new Uri("https://huggingface.co/repo/resolve/hash/file"), "/api/resolve-cache/model").AbsoluteUri == "https://huggingface.co/api/resolve-cache/model", "Relative redirects resolve against trusted origin");
+        Check(!LocalAiTransport.AllowedUri(new Uri("relative/path", UriKind.Relative)), "Relative input is rejected without throwing");
+        foreach (string bad in new[] { "https://us.aws.cdn.hf.co.evil.test/file", "https://evil.us.aws.cdn.hf.co/file", "https://huggingface.co@evil.test/file", "http://us.aws.cdn.hf.co/file", "https://us.aws.cdn.hf.co:444/file", "https://us.aws.cdn.hf.co/file#fragment", "file:///C:/model.gguf", "", " " })
+            Reject(delegate { LocalAiTransport.ResolveRedirect(LocalAiCatalog.Models[0].DownloadUrl, bad); }, "Unsafe or malformed redirect remains blocked");
+        try { LocalAiTransport.ResolveRedirect(LocalAiCatalog.Models[0].DownloadUrl, "https://unknown.test/file?Signature=do-not-log"); throw new Exception("Must reject unknown CDN"); }
+        catch (InvalidDataException error) { Check(error.Message.Contains("unknown.test") && !error.Message.Contains("do-not-log"), "Error identifies host without signed URL data"); }
         Reject(delegate { LocalAiStorage.Inside(root, "../escape"); }, "Path traversal blocked");
         foreach (string bad in new[] { "../evil.dll", "/evil.dll", "sub/../../evil.dll", "C:/evil.dll", "sub/./evil.dll" }) Reject(delegate { LocalAiStorage.RuntimeEntryName(bad); }, "Archive traversal rejected");
         Check(LocalAiStorage.RuntimeEntryName("bin/llama-server.exe") == "llama-server.exe", "Known executable extracted");
@@ -162,12 +174,35 @@ internal static class LocalAiTests
             }
         }
     }
+    private static void DownloadProbe(string root)
+    {
+        // Opt-in live-network regression: deliberately use fresh files and the production transport.
+        // This downloads and verifies bytes only; it never installs or launches the runtime.
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5)))
+        {
+            var transport = new LocalAiTransport();
+            string runtime = Path.Combine(root, "runtime-fresh.zip");
+            Check(!File.Exists(runtime), "Runtime probe starts without cached bytes");
+            transport.Download(LocalAiCatalog.RuntimeUrl, runtime, LocalAiCatalog.RuntimeBytes, null, timeout.Token);
+            Check(LocalAiStorage.Verify(runtime, LocalAiCatalog.RuntimeBytes, LocalAiCatalog.RuntimeSha256, false, timeout.Token), "Fresh official runtime redirect download matches pinned SHA-256");
+            var model = LocalAiCatalog.Models[0];
+            string path = Path.Combine(root, "model-fresh.gguf");
+            Check(!File.Exists(path), "Model probe starts without cached bytes");
+            long nextReport = 0;
+            transport.Download(model.DownloadUrl, path, model.DownloadBytes, delegate(long total) {
+                if (total >= nextReport) { Console.WriteLine("Fresh model download: " + total + " / " + model.DownloadBytes); nextReport = total + 32 * 1024 * 1024; }
+            }, timeout.Token);
+            Check(LocalAiStorage.Verify(path, model.DownloadBytes, model.Sha256, true, timeout.Token), "Fresh official model redirect download matches pinned SHA-256 and GGUF magic");
+        }
+    }
     public static int Main(string[] args)
     {
         try
         {
             string root = Path.GetFullPath(args.Length > 0 ? args[0] : Path.Combine("artifacts", "local-ai-tests-" + Guid.NewGuid().ToString("N"))); Directory.CreateDirectory(root);
-            if (args.Length > 1 && args[1] == "--probe") Probe(root); else Rules(root);
+            if (args.Length > 1 && args[1] == "--probe") Probe(root);
+            else if (args.Length > 1 && args[1] == "--download-probe") DownloadProbe(root);
+            else Rules(root);
             Console.WriteLine("Local AI: " + checks + " checks passed."); return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

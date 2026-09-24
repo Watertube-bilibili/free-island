@@ -16,11 +16,31 @@ namespace FreeIsland
     }
     internal sealed class LocalAiTransport : ILocalAiTransport
     {
+        // Exact delivery hosts published by Hugging Face, checked 2026-09-24:
+        // https://huggingface.co/.well-known/meta.json (lfsDomains + cdnDomains).
+        // Keep legacy endpoints for pinned model files; never accept arbitrary subdomains.
+        private static readonly HashSet<string> deliveryHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com", "huggingface.co",
+            "cdn-lfs.huggingface.co", "cdn-lfs-us-1.huggingface.co", "cdn-lfs-eu-1.huggingface.co",
+            "cas-bridge.xethub.hf.co", "cas-server.xethub.hf.co",
+            "cdn-lfs.hf.co", "cdn-lfs-us-1.hf.co", "cdn-lfs-eu-1.hf.co",
+            "transfer.xethub.hf.co", "transfer.xethub-eu.hf.co",
+            "aws.cdn.hf.co", "us.aws.cdn.hf.co", "us-east-1.aws.cdn.hf.co", "us-west-2.aws.cdn.hf.co",
+            "eu-west-3.aws.cdn.hf.co", "ap-southeast-1.aws.cdn.hf.co",
+            "us.gcp.cdn.hf.co", "us-east1.us.gcp.cdn.hf.co", "us-central1.us.gcp.cdn.hf.co",
+            "us-west4.us.gcp.cdn.hf.co", "europe-west4.us.gcp.cdn.hf.co", "asia-southeast1.us.gcp.cdn.hf.co"
+        };
         internal static bool AllowedUri(Uri uri)
         {
-            if (uri == null || uri.Scheme != "https" || uri.Port != 443 || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0) return false;
-            string host = uri.Host.ToLowerInvariant();
-            return host == "github.com" || host == "release-assets.githubusercontent.com" || host == "objects.githubusercontent.com" || host == "huggingface.co" || host == "cdn-lfs.huggingface.co" || host == "cdn-lfs-us-1.huggingface.co" || host == "cdn-lfs-eu-1.huggingface.co" || host == "cas-bridge.xethub.hf.co" || host == "cas-server.xethub.hf.co";
+            return uri != null && uri.IsAbsoluteUri && uri.Scheme == "https" && uri.Port == 443 && uri.UserInfo.Length == 0 && uri.Fragment.Length == 0 && deliveryHosts.Contains(uri.Host);
+        }
+        internal static Uri ResolveRedirect(Uri current, string location)
+        {
+            Uri next;
+            if (!AllowedUri(current) || String.IsNullOrWhiteSpace(location) || !Uri.TryCreate(current, location, out next)) throw new InvalidDataException("下载跳转地址无效，请重试。");
+            if (!AllowedUri(next)) throw new InvalidDataException("下载跳转被拒绝（" + next.Host + "），请更新浮岛后重试。");
+            return next;
         }
         public void Download(Uri uri, string destination, long exactBytes, Action<long> progress, CancellationToken token)
         {
@@ -38,8 +58,7 @@ namespace FreeIsland
                     int status = (int)response.StatusCode;
                     if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308)
                     {
-                        Uri next; if (!Uri.TryCreate(uri, response.Headers["Location"], out next) || !AllowedUri(next)) throw new InvalidDataException("下载重定向被拒绝。");
-                        uri = next; continue;
+                        uri = ResolveRedirect(uri, response.Headers["Location"]); continue;
                     }
                     if (status != 200 || (response.ContentLength >= 0 && response.ContentLength != exactBytes)) throw new InvalidDataException("下载文件大小与固定版本不符。");
                     using (var input = response.GetResponseStream())

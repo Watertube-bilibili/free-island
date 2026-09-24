@@ -2,7 +2,7 @@
 
 这是单独维护的原生 Windows 7 版本，面向 32 位和 64 位 Windows 7。应用和安装器均为 Win32 C++ 程序，不需要安装 .NET Framework、Visual C++ Redistributable、Node.js 或浏览器。运行时仅使用 Windows 系统 DLL；C++ 支持库静态链接。
 
-运行 `dist/FreeIsland-Win7-Setup-1.0.8.exe`，输入安装目录或点击「浏览」选择，再确认开机静默启动、桌面快捷方式并点击「安装浮岛」。安装完成后点击「打开浮岛」，或从开始菜单打开「浮岛 Win7」。默认目录通常无需管理员权限；自选目录需要当前账户具有写入权限。
+运行 `dist/FreeIsland-Win7-Setup-1.0.9.exe`，输入安装目录或点击「浏览」选择，再确认开机静默启动、桌面快捷方式并点击「安装浮岛」。安装完成后点击「打开浮岛」，或从开始菜单打开「浮岛 Win7」。默认目录通常无需管理员权限；自选目录需要当前账户具有写入权限。
 
 默认使用课堂场景，并保留更紧凑的电脑场景。提供悬浮球、环形入口、可拖动和靠边收起的灵动岛、正计时、倒计时、全屏展示、日程提醒、可取消的预约关机、托盘及本地设置。Windows 7 版使用原生窗口与 GDI+ 重建界面，与原 WPF 版本分别构建。
 
@@ -13,7 +13,7 @@
 安装包内嵌应用及其 SHA-256 值，提取前使用 Windows CryptoAPI 验证。仅验证并提取、不安装的命令：
 
 ```powershell
-.\dist\FreeIsland-Win7-Setup-1.0.8.exe --verify-payload "D:\free island\artifacts\win7-payload-check"
+.\dist\FreeIsland-Win7-Setup-1.0.9.exe --verify-payload "D:\free island\artifacts\win7-payload-check"
 ```
 
 该命令只向指定目录提取应用与运行库许可文件，不会启动应用、创建快捷方式、写入启动项或修改正式数据。安装包的内嵌哈希用于发现损坏，不替代发布者数字签名。
@@ -27,6 +27,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\win7\build-native.ps1
 构建使用 i686 MinGW-w64 / MSVCRT 工具链，生成 x86 PE，目标系统版本为 Windows 7。构建脚本和工具链仅供开发使用，最终用户只需运行安装包或便携应用。具体输出文件、导入 DLL 和校验值以构建结果为准。
 
 当前尚未在实体 Windows 7 电脑或实体教学触摸大屏上完成验证。现代 Windows 上的构建、运行及安全模式检查，不能代替 Windows 7 真机、不同显卡或触摸驱动的兼容性测试。开发测试不会执行真实关机，也不会实际安装或更改操作系统启动设置。正式使用时，预约关机不会强制关闭其他应用。
+
+## v1.0.9 版本同步
+
+v1.0.9 原生版行为不变，仅同步版本号供自动更新；本次下载重定向修复适用于标准版的可选模型下载。
 
 ## v1.0.7 · 星期循环关机、任务球与自动更新（2026-09-17）
 

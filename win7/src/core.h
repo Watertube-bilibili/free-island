@@ -38,6 +38,7 @@ struct Settings {
     int activeDotClassroom = 88;
     int activeDotSettingsVersion = 2;
     bool automaticUpdates = true;
+    bool contextShortcuts = false;
     bool shutdownRecurringEnabled = false;
     int shutdownRepeatDays = 31, shutdownRepeatHour = 17, shutdownRepeatMinute = 0;
     int glassMode = 1; // 0 = off, 1 = lite, 2 = water motion (no desktop refraction).

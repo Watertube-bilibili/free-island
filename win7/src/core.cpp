@@ -192,6 +192,7 @@ bool ParseState(const std::string& file, SavedState& state) {
         else if (key == "activeDotClassroom") { if (!Number(value, state.settings.activeDotClassroom)) state.settings.activeDotClassroom = 88; }
         else if (key == "activeDotSettingsVersion") { if (!Number(value, state.settings.activeDotSettingsVersion)) state.settings.activeDotSettingsVersion = 0; }
         else if (key == "automaticUpdates") { if (!Bool(value, state.settings.automaticUpdates)) state.settings.automaticUpdates = true; }
+        else if (key == "contextShortcuts") { if (!Bool(value, state.settings.contextShortcuts)) state.settings.contextShortcuts = false; }
         else if (key == "shutdownRecurringEnabled") { if (!Bool(value, state.settings.shutdownRecurringEnabled)) state.settings.shutdownRecurringEnabled = false; }
         else if (key == "shutdownRepeatDays") { if (!Number(value, state.settings.shutdownRepeatDays)) state.settings.shutdownRepeatDays = 0; }
         else if (key == "shutdownRepeatHour") { if (!Number(value, state.settings.shutdownRepeatHour)) state.settings.shutdownRepeatHour = -1; }
@@ -605,6 +606,7 @@ void Engine::Save() {
         << "activeDotClassroom=" << settings.activeDotClassroom << '\n'
         << "activeDotSettingsVersion=" << settings.activeDotSettingsVersion << '\n'
         << "automaticUpdates=" << settings.automaticUpdates << '\n'
+        << "contextShortcuts=" << settings.contextShortcuts << '\n'
         << "shutdownRecurringEnabled=" << settings.shutdownRecurringEnabled << '\n'
         << "shutdownRepeatDays=" << settings.shutdownRepeatDays << '\n'
         << "shutdownRepeatHour=" << settings.shutdownRepeatHour << '\n'

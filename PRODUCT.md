@@ -30,7 +30,7 @@ Windows 10 from 1507 / Build 10240 onward and Windows 11 for the WPF variant; Wi
 - Scheduled shutdown stays out of the island and timing-task badge until the final 10 seconds. Idle deadline waiting uses reduced-frequency checks; cancellation remains available in the control center and tray before the final warning.
 - Consistent code-native vector icons and brief state-transition animations support the same action vocabulary in both scenes.
 - Installer, per-user automatic startup, quiet login startup, local data persistence, tray controls.
-- Preserve all completed behavior during redesign. Shutdown remains cancellable and never forces applications closed. Shutdown plans are not restored after application restart; missed or un-warned deadlines are cancelled.
+- Preserve all completed behavior during redesign. Shutdown remains cancellable and never forces applications closed. One-off shutdown plans are not restored after application restart. Weekly recurring plans persist and recalculate a future occurrence; missed or un-warned occurrences are skipped.
 - User explicitly rejected the previous dark mint card dashboard as ugly and requested use of the official Impeccable design skill.
 
 ## Installation and Data Boundaries
@@ -78,3 +78,7 @@ Default-on GitHub stable-release checks after 30 seconds and every 6 hours. Show
 ## Repeating shutdown
 
 One persisted weekday/time plan complements the one-shot reservation. Offer Every day, Weekdays, and individually selectable Monday through Sunday, with touch-friendly hour/minute controls. Selection is a draft until explicit activation. Disabling cancels all future occurrences. Restart arms only the next future occurrence with enough warning time. Skip missed or insufficiently warned occurrences; never catch up with an immediate shutdown. The app must stay running. Keep final-ten-second island visibility and normal non-forced Windows shutdown. Automatic update may restart the app only more than five minutes before a recurring deadline; restoration retains the selected weekdays and time.
+
+## Optional local assistant (v1.0.8)
+
+Model and lightweight rule suggestions are separate opt-in capabilities. WPF can separately download pinned llama.cpp CPU x64 and Qwen3 0.6B / 1.7B / 4B on Windows 10 2004+ with AVX2; no model is bundled. Native Win7 offers clearly labeled rule shortcuts only. Context consists only of foreground process basename and selected scene. Model proposals are bounded declarative actions; user gestures perform volume/media/countdown/page navigation. Existing timers and urgent notices take priority. Both editions support per-event local WAV/MP3 alert choices, preview, volume and bounded playback. See LOCAL_AI.md for limits and sources.

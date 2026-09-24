@@ -14,10 +14,12 @@ using System.Windows.Threading;
 
 namespace FreeIsland
 {
-    public sealed class ControlWindow : Window
+    public sealed partial class ControlWindow : Window
     {
         private readonly CoreEngine engine;
         private readonly UpdateService updater;
+        private readonly AssistantController assistant;
+        private readonly AlertAudioService alertAudio;
         private readonly Action previewIsland, restoreBall, openPresentation;
         private readonly bool classroom;
         private readonly DispatcherTimer refreshTimer;
@@ -26,7 +28,7 @@ namespace FreeIsland
         private readonly ContentControl content;
         private readonly TextBlock pageTitle, pageCaption, clock, feedback;
         private readonly Dictionary<string, Button> navigation = new Dictionary<string, Button>();
-        private readonly Dictionary<string, string> labels = new Dictionary<string, string> { { "home", "工作台" }, { "stopwatch", "正向计时" }, { "countdown", "倒计时" }, { "reminders", "日程提醒" }, { "shutdown", "定时关机" }, { "settings", "设置" } };
+        private readonly Dictionary<string, string> labels = new Dictionary<string, string> { { "home", "工作台" }, { "stopwatch", "正向计时" }, { "countdown", "倒计时" }, { "reminders", "日程提醒" }, { "shutdown", "定时关机" }, { "assistant", "本地助手" }, { "settings", "设置" } };
         private static readonly List<TimeSpan> laps = new List<TimeSpan>();
         private readonly Brush ink = B("#18243A"), muted = B("#58657A"), accent = B("#4F66E8"), line = B("#DCE2EB"), paper = B("#F6F7FB"), selected = B("#EEF1FF");
         private Action updatePage;
@@ -38,9 +40,10 @@ namespace FreeIsland
         private double SmallSize { get { return classroom ? 16 : 12; } }
         private double TargetHeight { get { return classroom ? 54 : 40; } }
 
-        public ControlWindow(CoreEngine engine, Action previewIsland, Action restoreBall, Action openPresentation, UpdateService updater = null)
+        public ControlWindow(CoreEngine engine, Action previewIsland, Action restoreBall, Action openPresentation, UpdateService updater = null, AssistantController assistant = null, AlertAudioService alertAudio = null)
         {
             this.updater = updater;
+            this.assistant = assistant; this.alertAudio = alertAudio;
             this.engine = engine; this.previewIsland = previewIsland; this.restoreBall = restoreBall; this.openPresentation = openPresentation;
             classroom = engine.Settings.Scene == UsageScene.Classroom;
             Title = "浮岛 · 控制中心";
@@ -75,7 +78,7 @@ namespace FreeIsland
             if (classroom)
             {
                 body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-                var nav = new UniformGrid { Columns = 6, Margin = new Thickness(24, 12, 24, 0) }; foreach (var key in labels.Keys) AddNavigation(nav, key); body.Children.Add(nav); Grid.SetRow(workspace, 1);
+                var nav = new UniformGrid { Columns = 7, Margin = new Thickness(24, 12, 24, 0) }; foreach (var key in labels.Keys) AddNavigation(nav, key); body.Children.Add(nav); Grid.SetRow(workspace, 1);
             }
             else
             {
@@ -96,15 +99,16 @@ namespace FreeIsland
             glassSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             glassSaveTimer.Tick += delegate { SaveGlassSettings(); };
             IsVisibleChanged += delegate { if (!IsVisible && !AllowClose) SaveGlassSettings(); };
-            Closed += delegate { refreshTimer.Stop(); glassSaveTimer.Stop(); }; refreshTimer.Start(); Navigate("home");
+            IsVisibleChanged += delegate { if (!IsVisible) FlushAudioPreferences(); };
+            Closed += delegate { refreshTimer.Stop(); glassSaveTimer.Stop(); FlushAudioPreferences(); }; refreshTimer.Start(); Navigate("home");
         }
 
         public void Navigate(string page)
         {
             SaveGlassSettings();
             bool transition = content.Content != null && IsVisible && page != currentPage; currentPage = labels.ContainsKey(page) ? page : "home"; updatePage = null;
-            foreach (var pair in navigation) { bool active = pair.Key == currentPage; pair.Value.Background = active ? selected : Brushes.Transparent; pair.Value.BorderBrush = active ? B("#CDD6FF") : Brushes.Transparent; pair.Value.Content = IconLabel(pair.Key, labels[pair.Key], active ? B("#384FC2") : muted, classroom ? 18 : 14); }
-            if (currentPage == "stopwatch") BuildStopwatch(); else if (currentPage == "countdown") BuildCountdown(); else if (currentPage == "reminders") BuildReminders(); else if (currentPage == "shutdown") BuildShutdown(); else if (currentPage == "settings") BuildSettings(); else BuildHome();
+            foreach (var pair in navigation) { bool active = pair.Key == currentPage; pair.Value.Background = active ? selected : Brushes.Transparent; pair.Value.BorderBrush = active ? B("#CDD6FF") : Brushes.Transparent; pair.Value.Content = IconLabel(pair.Key, NavigationLabel(pair.Key), active ? B("#384FC2") : muted, classroom ? 18 : 14); }
+            if (currentPage == "stopwatch") BuildStopwatch(); else if (currentPage == "countdown") BuildCountdown(); else if (currentPage == "reminders") BuildReminders(); else if (currentPage == "shutdown") BuildShutdown(); else if (currentPage == "assistant") BuildAssistant(); else if (currentPage == "settings") BuildSettings(); else BuildHome();
             RefreshClock(); if (updatePage != null) updatePage();
             if (transition && !SurfaceStyle.SnapshotMode && SystemParameters.ClientAreaAnimation)
             {
@@ -124,7 +128,16 @@ namespace FreeIsland
         }
         private void AddNavigation(Panel parent, string key)
         {
-            var button = Btn("", delegate { Navigate(key); }); button.Content = IconLabel(key, labels[key], muted, classroom ? 18 : 14); button.Padding = new Thickness(classroom ? 10 : 12, 12, classroom ? 10 : 12, 12); button.MinHeight = classroom ? 56 : 48; button.Margin = classroom ? new Thickness(4, 0, 4, 0) : new Thickness(0, 0, 0, 7); button.HorizontalContentAlignment = classroom ? HorizontalAlignment.Center : HorizontalAlignment.Left; button.Background = Brushes.Transparent; button.BorderBrush = Brushes.Transparent; System.Windows.Automation.AutomationProperties.SetName(button, labels[key]); navigation.Add(key, button); parent.Children.Add(button);
+            var button = Btn("", delegate { Navigate(key); }); button.Content = IconLabel(key, NavigationLabel(key), muted, classroom ? 18 : 14); button.Padding = new Thickness(classroom ? 6 : 12, 12, classroom ? 6 : 12, 12); button.MinHeight = classroom ? 56 : 48; button.Margin = classroom ? new Thickness(4, 0, 4, 0) : new Thickness(0, 0, 0, 7); button.HorizontalContentAlignment = classroom ? HorizontalAlignment.Center : HorizontalAlignment.Left; button.Background = Brushes.Transparent; button.BorderBrush = Brushes.Transparent; System.Windows.Automation.AutomationProperties.SetName(button, labels[key]); navigation.Add(key, button); parent.Children.Add(button);
+        }
+        private string NavigationLabel(string key)
+        {
+            if (!classroom) return labels[key];
+            if (key == "stopwatch") return "正计时";
+            if (key == "reminders") return "日程";
+            if (key == "shutdown") return "关机";
+            if (key == "assistant") return "助手";
+            return labels[key];
         }
 
         private void BuildHome()

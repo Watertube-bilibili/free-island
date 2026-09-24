@@ -26,10 +26,14 @@ namespace FreeIsland
         private DispatcherTimer ticker;
         private DispatcherTimer updateTicker;
         private UpdateService updater;
+        private AssistantController assistant;
+        private AlertAudioService alertAudio;
+        private DispatcherTimer assistantTicker;
         private EventWaitHandle exitEvent, showEvent;
         private RegisteredWaitHandle exitWait, showWait;
         private bool ending, safe;
         private bool lastCountdown, lastStopwatch;
+        private bool lastSoundEnabled;
         private IslandPlacement lastPlacement;
         private bool lastEdge;
         private UsageScene lastScene;
@@ -87,6 +91,7 @@ namespace FreeIsland
             SurfaceStyle.SnapshotMode = args.Contains("--smoke-test");
             dataPath = safe ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test-data") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FreeIsland");
             engine = new CoreEngine(dataPath, safe);
+            lastSoundEnabled = engine.Settings.SoundEnabled;
             lastCountdown = engine.CountdownRunning;
             lastStopwatch = engine.StopwatchRunning;
             // Honor the installer startup checkbox on the first run and after upgrades.
@@ -111,8 +116,12 @@ namespace FreeIsland
             ball = new BallWindow(engine, ToggleRadial, OpenPanel);
             presentation = new PresentationWindow(engine);
             ApplyAppIcon(presentation);
-            updater = new UpdateService(engine, delegate { return panel != null && panel.IsVisible || presentation != null && presentation.IsVisible || island != null && island.IsVisible || radial != null && radial.IsVisible; }, ExitApp);
-            panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation, updater);
+            alertAudio = new AlertAudioService(dataPath, safe);
+            island.NoticeAcknowledged += delegate { alertAudio.Stop(); };
+            assistant = new AssistantController(dataPath, safe, engine, delegate { return !ending && !panel.IsVisible && !presentation.IsVisible && !island.IsVisible && !radial.IsVisible; });
+            assistant.Suggested += delegate(AssistantSuggestion suggestion) { if (!ending) AssistantIsland.Present(island, engine, suggestion, OpenPanel); };
+            updater = new UpdateService(engine, delegate { return panel != null && panel.IsVisible || presentation != null && presentation.IsVisible || island != null && island.IsVisible || radial != null && radial.IsVisible || assistant.Service.IsBusy; }, ExitApp);
+            panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation, updater, assistant, alertAudio);
             MainWindow = panel;
             ApplyAppIcon(panel);
             radial = new RadialWindow(engine, OpenPanel, delegate { if (!ending) { ball.Show(); ball.ScheduleHide(); } });
@@ -130,6 +139,9 @@ namespace FreeIsland
             updateTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             updateTicker.Tick += delegate { updater.Poll(); };
             if (!safe) updateTicker.Start();
+            assistantTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            assistantTicker.Tick += delegate { assistant.Poll(); };
+            if (!safe) assistantTicker.Start();
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += DisplayChanged;
             if (!args.Contains("--silent")) OpenPanel("home");
             if (args.Contains("--smoke-test"))
@@ -221,7 +233,7 @@ namespace FreeIsland
             ball.ApplyScene(); island.ApplyScene(); island.Reposition();
             if (!island.IsVisible) islandHandle.ShowAt(island.LastWorkArea);
             panel.AllowClose = true; panel.Close();
-            panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation, updater);
+            panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation, updater, assistant, alertAudio);
             ApplyAppIcon(panel);
             MainWindow = panel; panel.Navigate(page);
             if (wasVisible) { panel.Show(); panel.Activate(); }
@@ -229,6 +241,12 @@ namespace FreeIsland
 
         private void OnChanged(object sender, EventArgs e)
         {
+            if (alertAudio != null)
+            {
+                if (lastSoundEnabled && !engine.Settings.SoundEnabled) alertAudio.Stop();
+                if (!engine.ShutdownRemaining.HasValue || engine.ShutdownRemaining.Value.TotalSeconds > 10 || engine.ShutdownRemaining.Value <= TimeSpan.Zero) alertAudio.StopShutdown();
+                lastSoundEnabled = engine.Settings.SoundEnabled;
+            }
             if (engine.CountdownRunning != lastCountdown)
             {
                 lastCountdown = engine.CountdownRunning;
@@ -285,7 +303,12 @@ namespace FreeIsland
         {
             if (e.Kind != "info") lastNotice = e;
             island.ShowNotice(e);
-            if (engine.Settings.SoundEnabled) System.Media.SystemSounds.Asterisk.Play();
+            if (engine.Settings.SoundEnabled && alertAudio != null)
+            {
+                if (e.Kind == "countdown") alertAudio.Play(AlertSoundKind.Countdown);
+                else if (e.Kind == "reminder") alertAudio.Play(AlertSoundKind.Reminder);
+                else if (e.Kind == "shutdown" && engine.ShutdownRemaining.HasValue && engine.ShutdownRemaining.Value > TimeSpan.Zero && engine.ShutdownRemaining.Value.TotalSeconds <= 10) alertAudio.Play(AlertSoundKind.Shutdown);
+            }
             if (tray != null && (e.Kind == "reminder" || e.Kind == "countdown" || e.Urgent))
                 tray.ShowBalloonTip(10000, e.Title, e.Message, e.Urgent ? Forms.ToolTipIcon.Warning : Forms.ToolTipIcon.Info);
         }
@@ -389,6 +412,8 @@ namespace FreeIsland
             if (ticker != null) ticker.Stop();
             if (updateTicker != null) updateTicker.Stop();
             if (updater != null) updater.Dispose();
+            if (assistantTicker != null) assistantTicker.Stop();
+            if (assistant != null) assistant.Dispose();
             if (engine != null)
             {
                 engine.Notice -= OnNotice; engine.Changed -= OnChanged;
@@ -401,6 +426,7 @@ namespace FreeIsland
             if (hotkey != null) { Native.UnregisterHotKey(hotkey.Handle, 8137); hotkey.Dispose(); }
             if (tray != null) { tray.Visible = false; tray.Dispose(); }
             if (panel != null) { panel.AllowClose = true; panel.Close(); }
+            if (alertAudio != null) alertAudio.Dispose();
             if (presentation != null) { presentation.AllowClose = true; presentation.Close(); }
             if (ball != null) ball.Close();
             if (radial != null) radial.Close();

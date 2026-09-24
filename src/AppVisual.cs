@@ -15,6 +15,7 @@ namespace FreeIsland
         private static readonly Dictionary<string, string> Paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             { "home", "M3,10.5 L12,3 L21,10.5 M5.5,9 V20 H9.5 V14 H14.5 V20 H18.5 V9" },
+            { "assistant", "M8,4 H16 A4,4 0 0 1 20,8 V15 A4,4 0 0 1 16,19 H11 L6,22 V18 A4,4 0 0 1 4,14 V8 A4,4 0 0 1 8,4 M8,10 V12 M16,10 V12 M9,15 H15" },
             { "stopwatch", "M9,2 H15 M12,2 V5 M17.6,7.4 L19.5,5.5 M18.4,4.4 L20.6,6.6 M19.5,13.5 A7.5,7.5 0 1 1 4.5,13.5 A7.5,7.5 0 1 1 19.5,13.5 M12,9 V13.5 L15,15.5" },
             { "countdown", "M4.6,6.7 A8.4,8.4 0 1 1 3.8,15.4 M4.6,2.8 V6.7 H8.5 M12,7 V12 L15.5,14" },
             { "reminders", "M8,2.5 V6 M16,2.5 V6 M20,10 V6 A2,2 0 0 0 18,4 H6 A2,2 0 0 0 4,6 V18 A2,2 0 0 0 6,20 H10 M4,9 H20 M14,18 V14.5 A3,3 0 0 1 20,14.5 V18 L21,19 H13 Z M16,21 H18" },

@@ -337,6 +337,7 @@ namespace FreeIsland
 
     public sealed class IslandWindow : Window
     {
+        public event EventHandler NoticeAcknowledged;
         public event EventHandler Expanded;
         public event EventHandler Collapsed;
         public Rect LastWorkArea { get; private set; }
@@ -361,6 +362,8 @@ namespace FreeIsland
         private readonly StackPanel taskStack;
         private readonly List<IslandTaskCard> taskCards = new List<IslandTaskCard>();
         private bool tasksMode, noticeVisible;
+        private Border assistantCard;
+        private double assistantHeight;
 
         public IslandWindow(CoreEngine engine, Action<string> navigate, Action<Point> dropped)
         {
@@ -381,7 +384,7 @@ namespace FreeIsland
             words.Children.Add(title); words.Children.Add(detail); grid.Children.Add(readablePanel);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(actions, 2);
             action = SurfaceStyle.Button("查看", Act, "#EEF1FF"); actions.Children.Add(action);
-            var close = SurfaceStyle.Button("", delegate { urgent = false; Collapse(); }, "#F2F4F9"); close.Content = AppVisual.Icon("close", 15, SurfaceStyle.Brush("#596783")); close.Width = 34; close.Margin = new Thickness(5, 0, 0, 0); close.ToolTip = "收起为小黑点，任务继续运行"; actions.Children.Add(close); grid.Children.Add(actions);
+            var close = SurfaceStyle.Button("", delegate { AcknowledgeNotice(); urgent = false; Collapse(); }, "#F2F4F9"); close.Content = AppVisual.Icon("close", 15, SurfaceStyle.Brush("#596783")); close.Width = 34; close.Margin = new Thickness(5, 0, 0, 0); close.ToolTip = "收起为小黑点，任务继续运行"; actions.Children.Add(close); grid.Children.Add(actions);
             material = new LiquidGlassSurface { Mode = engine.Settings.GlassMode, Radius = 32, Name = "IslandGlassMaterial" };
             var layers = new Grid(); layers.Children.Add(material);
             grid.Margin = new Thickness(16, 10, 12, 10); layers.Children.Add(grid); card.Child = layers;
@@ -446,12 +449,13 @@ namespace FreeIsland
         }
         private static bool IsButtonSource(DependencyObject source)
         {
-            while (source != null) { if (source is Button) return true; source = VisualTreeHelper.GetParent(source); }
+            while (source != null) { if (source is System.Windows.Controls.Primitives.ButtonBase || source is Slider) return true; source = VisualTreeHelper.GetParent(source); }
             return false;
         }
         public void KeepOpenAfterDrag() { visibleUntil = DateTime.UtcNow.AddSeconds(7); }
         public void ShowActivity(string kind)
         {
+            ClearAssistant();
             if (engine.GetIslandTasks().Count > 0) { ShowTasks(); return; }
             // A future shutdown is deliberately absent from every floating surface.
             if (kind == "shutdown") return;
@@ -478,6 +482,7 @@ namespace FreeIsland
         }
         public void ShowNotice(IslandNoticeEventArgs notice)
         {
+            ClearAssistant();
             TimeSpan? shutdownLeft = engine.ShutdownRemaining;
             if (notice.Kind == "shutdown" && notice.Urgent && shutdownLeft.HasValue && shutdownLeft.Value > TimeSpan.Zero && shutdownLeft.Value.TotalSeconds <= 10) { ShowTasks(); return; }
             noticeVisible = true; tasksMode = true; card.Visibility = Visibility.Visible;
@@ -493,6 +498,7 @@ namespace FreeIsland
         }
         public void ShowTasks()
         {
+            ClearAssistant();
             tasksMode = true; noticeVisible = false; card.Visibility = Visibility.Collapsed;
             UpdateTasks();
             if (taskCards.Count > 0) Present(7);
@@ -518,16 +524,36 @@ namespace FreeIsland
             }
             for (int i = 0; i < tasks.Count; i++) taskCards[i].Update(tasks[i]);
             urgent = tasks.Count > 0 && tasks[0].Kind == "shutdown";
-            double height = Math.Max(1, tasks.Count + (noticeVisible ? 1 : 0)) * 102;
+            double height = Math.Max(assistantHeight > 0 ? 0 : 102, (tasks.Count + (noticeVisible ? 1 : 0)) * 102 + assistantHeight);
             if (surface.Height != height) { surface.Height = height; if (!pointerDown) Reposition(); }
-            if (tasks.Count == 0 && !noticeVisible && IsVisible) Collapse();
+            if (tasks.Count == 0 && !noticeVisible && assistantCard == null && IsVisible) Collapse();
+        }
+        private void ClearAssistant()
+        {
+            if (assistantCard != null) taskStack.Children.Remove(assistantCard);
+            assistantCard = null; assistantHeight = 0;
+        }
+        public void DismissAssistant() { ClearAssistant(); if (tasksMode) UpdateTasks(); }
+        public void ShowAssistant(FrameworkElement body, double height)
+        {
+            if (engine.ShutdownRemaining.HasValue && engine.ShutdownRemaining.Value.TotalSeconds <= 30) return;
+            ClearAssistant(); tasksMode = true; noticeVisible = false; card.Visibility = Visibility.Collapsed; activity = "";
+            var glass = new LiquidGlassSurface { Mode = engine.Settings.GlassMode, Radius = 28 };
+            var layers = new Grid(); layers.Children.Add(glass);
+            var backing = new Border { Child = body, Margin = new Thickness(16), Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(14) };
+            backing.SetValue(LiquidGlass.ReadablePanelProperty, true); layers.Children.Add(backing);
+            assistantCard = new Border { Child = layers, Margin = new Thickness(10), Height = height - 20, CornerRadius = new CornerRadius(28), Cursor = Cursors.SizeAll };
+            LiquidGlass.Track(assistantCard, glass); assistantHeight = height; taskStack.Children.Insert(0, assistantCard);
+            UpdateTasks(); Present(18);
         }
         private void Act()
         {
+            AcknowledgeNotice();
             if (activity == "shutdown" && engine.ShutdownAt.HasValue) { engine.CancelShutdown(); urgent = false; Collapse(); }
             else if (activity != "") { navigate(activity); Collapse(); }
             else { noticeVisible = false; card.Visibility = Visibility.Collapsed; if (engine.GetIslandTasks().Count > 0) { UpdateTasks(); KeepOpenAfterDrag(); } else { urgent = false; Collapse(); } }
         }
+        private void AcknowledgeNotice() { var handler = NoticeAcknowledged; if (handler != null) handler(this, EventArgs.Empty); }
         private void Present(int seconds)
         {
             motionVersion++; collapsing = false; SurfaceStyle.StopPosition(this);

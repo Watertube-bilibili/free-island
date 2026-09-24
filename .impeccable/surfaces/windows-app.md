@@ -51,3 +51,7 @@ Classroom custom time uses hours/minutes/seconds sliders with visible values, on
 ## Repeating shutdown
 
 Use one-shot/repeat mode selection, everyday/workday presets, seven weekday targets and explicit plan activation. Preserve at least 44 DIP touch targets and existing time sliders. Show next occurrence and selected weekdays while active; cancel disables all future occurrences. Draft edits do not arm a shutdown. Missed events skip to the next occurrence; no catch-up shutdown after restart.
+
+## Optional assistant and audio (v1.0.8)
+
+Preserve the teaching-console identity. Standard edition adds a local-assistant navigation entry with concise classroom labels, independently opt-in rule/model capability, three real model choices, visible download state and stop/cancel actions. Native exposes rules and audio in settings. Suggestions use the existing island material with readable backing, touch-height volume slider and explicit actions; generated countdown labels also show actual duration. Model-generated text never replaces action truth. Audio choices use consistent browse/preview/reset controls with per-event state, a shared volume slider and stop playback. Desktop and classroom visuals inspected together with one narrow-width navigation fix and one confirmation.

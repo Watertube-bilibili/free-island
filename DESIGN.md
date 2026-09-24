@@ -281,6 +281,17 @@ The ball's edge handles show a small vector arrow over Edge Paper. The island ha
 
 Motion uses brief scale, fade and position changes: 180 ms for page entry and fullscreen state fades, 220 ms for dock settling, 240 ms radial choices, and 290 ms island opening. WPF easing and exact transitions are preserved in the sidecar. Snapshot mode disables these animations. Main page and stage animation also respect the Windows client-area animation setting.
 
+### Island Conversation · v1.0.10
+
+A compact, readable conversation uses the incumbent island material, type family and action palette. Its empty view starts at 408 DIPs high and expands to 548 for a conversation, subject to the existing scene scale and work-area fitting. A scrollable message region leaves the composer and recovery actions reachable. The local title is 21 DIPs, message text 16/14 in classroom/desktop and context text 12; these are component sizes, not new global type roles.
+
+Use the existing readable-panel treatment behind the heading, context, replies and footer, leaving water visible around them. User messages have a pale local backing and align right. The composer retains a white native field, input boundary, cobalt caret and selection treatment, with 54-DIP minimum height and a 600-character limit. Conversation secondary controls keep at least 44-DIP height. Send and Stop use the shared primary cobalt fill with white text, including Cobalt Hover and Cobalt Pressed; never substitute the neutral state fills beneath their white labels. Existing keyboard-focus treatment remains visible.
+
+The code-drawn blue-violet response line animates only during an active request, at most 24 frames per second. It respects the Windows motion preference and stops when cancelled or hidden. It is a local activity cue, not a new brand color or an idle animation rule. Reuse Off / Lite / Water, refraction and readable backing without adding another material preference. This extension adds no shipping raster assets.
+
+### Model Directory Controls · v1.0.10
+
+The assistant page uses the incumbent settings components: a wrapping read-only path field, explicit directory chooser and Restore Default action. The current path stays readable, and controls are disabled during an active model operation or conversation request. After a successful switch, the notification states that files are preserved and the model needs explicit enabling or installation; changing a path does not imply the model is running.
 ## Do's and Don'ts
 
 ### Do:

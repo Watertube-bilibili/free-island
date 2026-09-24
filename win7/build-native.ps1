@@ -27,8 +27,8 @@ foreach ($directory in @($buildDirectory, $outputDirectory, $portableDirectory))
 }
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $appExecutable = Join-Path $portableDirectory 'FreeIslandWin7.exe'
-$setupExecutable = Join-Path $outputDirectory 'FreeIsland-Win7-Setup-1.0.7.exe'
-$zipPath = Join-Path $outputDirectory 'FreeIsland-Win7-Portable-1.0.7.zip'
+$setupExecutable = Join-Path $outputDirectory 'FreeIsland-Win7-Setup-1.0.8.exe'
+$zipPath = Join-Path $outputDirectory 'FreeIsland-Win7-Portable-1.0.8.zip'
 $runtimeLicense = Join-Path (Split-Path -Parent $CompilerDirectory) 'COPYING.MinGW-w64-runtime.txt'
 if (-not (Test-Path -LiteralPath $runtimeLicense)) { throw '编译器缺少 COPYING.MinGW-w64-runtime.txt。' }
 
@@ -44,7 +44,7 @@ $commonArguments = @(
     '-Wl,--dynamicbase,--nxcompat,--no-insert-timestamp'
 )
 $guiArguments = @('-mwindows', '-municode')
-$libraries = @('-lgdiplus', '-lcomctl32', '-lshell32', '-lshlwapi', '-lole32', '-loleaut32', '-luuid', '-ladvapi32', '-lwinmm', '-lgdi32', '-luser32', '-lwinhttp', '-lversion')
+$libraries = @('-lgdiplus', '-lcomctl32', '-lshell32', '-lshlwapi', '-lole32', '-loleaut32', '-luuid', '-ladvapi32', '-lwinmm', '-lgdi32', '-luser32', '-lwinhttp', '-lversion', '-lcomdlg32')
 
 function Invoke-NativeCompiler {
     param([string[]] $CompilerArguments)
@@ -93,7 +93,7 @@ Push-Location $projectRoot
 try {
     Write-Host '正在编译 Windows 7 原生应用…'
     Invoke-ResourceCompiler -InputFile 'win7\resources\app.rc' -OutputFile 'artifacts\win7-native\app-res.o'
-    Invoke-NativeCompiler -CompilerArguments ($commonArguments + $guiArguments + @('win7\src\main.cpp', 'win7\src\core.cpp', 'win7\src\update.cpp', 'artifacts\win7-native\app-res.o', '-o', $appExecutable) + $libraries)
+    Invoke-NativeCompiler -CompilerArguments ($commonArguments + $guiArguments + @('win7\src\main.cpp', 'win7\src\core.cpp', 'win7\src\update.cpp', 'win7\src\context_actions.cpp', 'win7\src\alert_audio.cpp', 'artifacts\win7-native\app-res.o', '-o', $appExecutable) + $libraries)
     Assert-NativeWindows7 -Executable $appExecutable
 
     $coreTestSource = Join-Path $projectRoot 'win7\tests\core_tests.cpp'
@@ -109,6 +109,16 @@ try {
         Assert-NativeWindows7 -Executable $updateTestExecutable -ExpectedSubsystem 3
         & $updateTestExecutable (Join-Path $buildDirectory ('update-fixture-' + [Guid]::NewGuid().ToString('N')))
         if ($LASTEXITCODE -ne 0) { throw "Native update fixture tests failed: $LASTEXITCODE" }
+        $contextTestExecutable = Join-Path $buildDirectory 'ContextTests.exe'
+        Invoke-NativeCompiler -CompilerArguments ($commonArguments + @('win7\src\context_actions.cpp', 'win7\tests\context_tests.cpp', '-o', $contextTestExecutable) + $libraries)
+        Assert-NativeWindows7 -Executable $contextTestExecutable -ExpectedSubsystem 3
+        & $contextTestExecutable
+        if ($LASTEXITCODE -ne 0) { throw "Native context fixture tests failed: $LASTEXITCODE" }
+        $audioTestExecutable = Join-Path $buildDirectory 'AlertAudioTests.exe'
+        Invoke-NativeCompiler -CompilerArguments ($commonArguments + @('-municode', 'win7\src\alert_audio.cpp', 'win7\tests\alert_audio_tests.cpp', '-o', $audioTestExecutable) + $libraries)
+        Assert-NativeWindows7 -Executable $audioTestExecutable -ExpectedSubsystem 3
+        & $audioTestExecutable (Join-Path $buildDirectory ('audio-fixture-' + [Guid]::NewGuid().ToString('N')))
+        if ($LASTEXITCODE -ne 0) { throw "Native alert audio fixture tests failed: $LASTEXITCODE" }
     }
 
     $payloadHash = (Get-FileHash -LiteralPath $appExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -123,8 +133,8 @@ try {
 202 RCDATA "payload.sha256"
 203 RCDATA "COPYING.MinGW-w64-runtime.txt"
 1 VERSIONINFO
- FILEVERSION 1,0,7,0
- PRODUCTVERSION 1,0,7,0
+ FILEVERSION 1,0,8,0
+ PRODUCTVERSION 1,0,8,0
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS 0
  FILEOS VOS_NT_WINDOWS32
@@ -136,10 +146,10 @@ BEGIN
   BEGIN
    VALUE "CompanyName", "Free Island\0"
    VALUE "FileDescription", "浮岛 · Windows 7 原生安装程序\0"
-   VALUE "FileVersion", "1.0.7\0"
-   VALUE "OriginalFilename", "FreeIsland-Win7-Setup-1.0.7.exe\0"
+   VALUE "FileVersion", "1.0.8\0"
+   VALUE "OriginalFilename", "FreeIsland-Win7-Setup-1.0.8.exe\0"
    VALUE "ProductName", "浮岛\0"
-   VALUE "ProductVersion", "1.0.7\0"
+   VALUE "ProductVersion", "1.0.8\0"
   END
  END
  BLOCK "VarFileInfo"

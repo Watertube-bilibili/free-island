@@ -310,7 +310,7 @@ namespace FreeIsland
                 {
                     var work = new LegacyWork { State = state, OwnerHandle = state.Handle, Generation = state.Generation,
                         Left = left, Top = top, Width = width, Height = height, Started = now };
-                    state.NextLegacyRequest = now + 100;
+                    state.NextLegacyRequest = now + 75;
                     // One overwriteable request per registered window, not one queued
                     // task per surface/tick. A bounded mailbox keeps different floating
                     // windows fair when their DispatcherTimer ticks coincide.
@@ -552,7 +552,7 @@ namespace FreeIsland
             }
             int sourceStride = source.Width * 4;
             source.Used = Clock;
-            if (source.Captured == 0 || Clock - source.Captured > 150)
+            if (source.Captured == 0 || Clock - source.Captured > 100)
             {
                 source.Captured = 0;
                 var sentinelRow = new byte[sourceStride];
@@ -564,7 +564,7 @@ namespace FreeIsland
                 // cooperative accelerated windows to supply their composed content.
                 // DWM ignores viewport translations for this flag, so a full source
                 // DIB is required. Keep at most two source DIBs, <=4096*2160 pixels
-                // in TOTAL. Reuse actual source pixels for 150ms across floating
+                // in TOTAL. Reuse actual source pixels for 100ms across floating
                 // windows and their radial buttons, with rectangle checks above.
                 bool painted;
 #if FI_BACKDROP_TESTING

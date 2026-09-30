@@ -12,7 +12,7 @@ using System.Windows.Threading;
 
 namespace FreeIsland
 {
-    internal interface IClearGlassContent { void ApplyMaterial(int mode); }
+    internal interface IClearGlassContent { void ApplyMaterial(int mode, bool light); }
     /// <summary>A clear convex water lens; only the material deforms, never its labels.</summary>
     public sealed class LiquidGlassSurface : FrameworkElement
     {
@@ -27,6 +27,7 @@ namespace FreeIsland
         public bool Pressed { get { return (bool)GetValue(PressedProperty); } set { SetValue(PressedProperty, value); } }
         public bool Compact { get { return (bool)GetValue(CompactProperty); } set { SetValue(CompactProperty, value); } }
         public bool HighDetailRefraction { get; set; }
+        private const int ActiveFrameMilliseconds = 16, RestingFrameMilliseconds = 50;
         private readonly DispatcherTimer timer;
         private readonly WaterSpring pressure = new WaterSpring(), pullX = new WaterSpring(), pullY = new WaterSpring();
         private Window captureWindow;
@@ -50,7 +51,7 @@ namespace FreeIsland
         public LiquidGlassSurface()
         {
             IsHitTestVisible = false;
-            timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) };
+            timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(ActiveFrameMilliseconds) };
             timer.Tick += Tick;
             Loaded += delegate { LiquidGlass.Surfaces.Add(this); SystemParameters.StaticPropertyChanged += SystemChanged; Refresh(); };
             Unloaded += delegate { LiquidGlass.Surfaces.Remove(this); SystemParameters.StaticPropertyChanged -= SystemChanged; Stop(); };
@@ -93,7 +94,7 @@ namespace FreeIsland
             if (InkHost != null) LiquidGlass.Ink(InkHost, Mode, lightInk && Capture);
             if (Capture || Motion && (Pressed || pressure.Value != 0 || moving))
             {
-                lastTick = DateTime.UtcNow; timer.Interval = TimeSpan.FromMilliseconds(33); timer.Start();
+                lastTick = DateTime.UtcNow; timer.Interval = TimeSpan.FromMilliseconds(ActiveFrameMilliseconds); timer.Start();
             }
             else timer.Stop();
             InvalidateVisual();
@@ -116,7 +117,7 @@ namespace FreeIsland
             }
             else if (!point.HasValue) { pullX.Target = pullY.Target = 0; }
             moving = true;
-            if (IsLoaded && IsVisible) { timer.Interval = TimeSpan.FromMilliseconds(33); timer.Start(); }
+            if (IsLoaded && IsVisible) { timer.Interval = TimeSpan.FromMilliseconds(ActiveFrameMilliseconds); timer.Start(); }
         }
         internal void Arrive()
         {
@@ -144,7 +145,7 @@ namespace FreeIsland
                 previousOrigin = origin;
                 bool wasMoving = moving;
                 moving = Motion && (pressure.Advance(dt) | pullX.Advance(dt) | pullY.Advance(dt)); dirty = moving || wasMoving;
-                if (Capture && (now - lastCapture).TotalMilliseconds >= (moving || Pressed ? 30 : 100))
+                if (Capture && (now - lastCapture).TotalMilliseconds >= (moving || Pressed ? ActiveFrameMilliseconds : RestingFrameMilliseconds))
                 {
                     lastCapture = now;
                     BackdropFrame frame = null;
@@ -166,7 +167,7 @@ namespace FreeIsland
                 if (lens != null && backdrop != null) UpdateInk();
             }
             catch (InvalidOperationException) { backdrop = null; image = null; InvalidateVisual(); }
-            timer.Interval = TimeSpan.FromMilliseconds(moving || Pressed ? 33 : 100);
+            timer.Interval = TimeSpan.FromMilliseconds(moving || Pressed ? ActiveFrameMilliseconds : RestingFrameMilliseconds);
             if (!Capture && !moving && !Pressed) timer.Stop();
         }
         private void RenderLens()
@@ -266,6 +267,7 @@ namespace FreeIsland
         }
         internal static readonly DependencyProperty ReadablePanelProperty = DependencyProperty.RegisterAttached("ReadablePanel", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
         internal static readonly DependencyProperty ClearPanelProperty = DependencyProperty.RegisterAttached("ClearPanel", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
+        internal static Brush ConversationTint(bool light) { return new SolidColorBrush(light ? Color.FromArgb(48, 15, 22, 31) : Color.FromArgb(42, 248, 250, 252)); }
         private static readonly DependencyProperty PointerWiredProperty = DependencyProperty.RegisterAttached("PointerWired", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
         private static readonly DependencyProperty OriginalInkProperty = DependencyProperty.RegisterAttached("OriginalInk", typeof(Brush), typeof(LiquidGlass));
         private static readonly Dictionary<Window, HashSet<LiquidGlassSurface>> Windows = new Dictionary<Window, HashSet<LiquidGlassSurface>>();
@@ -289,14 +291,14 @@ namespace FreeIsland
         private static void InkCore(DependencyObject host, int mode, bool light, bool readable)
         {
             var clearContent = host as IClearGlassContent;
-            if (clearContent != null) { readable = true; clearContent.ApplyMaterial(mode); }
+            if (clearContent != null) { readable = true; clearContent.ApplyMaterial(mode, light); }
             // Local counter-colour halos protect labels on mixed slides without
             // inserting an opaque card inside the water surface.
             var panel = host as Border;
             if (panel != null && (bool)panel.GetValue(ReadablePanelProperty))
             {
                 readable = true;
-                panel.Background = SystemParameters.HighContrast ? SystemColors.WindowBrush : mode == 0 || (bool)panel.GetValue(ClearPanelProperty) ? Brushes.Transparent :
+                panel.Background = SystemParameters.HighContrast ? SystemColors.WindowBrush : mode == 0 ? Brushes.Transparent : (bool)panel.GetValue(ClearPanelProperty) ? ConversationTint(light) :
                     new SolidColorBrush(light ? Color.FromArgb(205, 15, 22, 31) : Color.FromArgb(228, 248, 250, 252));
             }
             var text = host as TextBlock; var shape = host as Shape;

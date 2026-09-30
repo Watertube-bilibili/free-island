@@ -38,6 +38,8 @@ namespace FreeIsland
             Add(result, "网易云音乐", "media", "播放音乐、歌单和播客", "volume,media_toggle", "cloudmusic");
             Add(result, "QQ 音乐", "media", "播放音乐和歌单", "volume,media_toggle", "qqmusic");
             Add(result, "Spotify 音乐", "media", "播放音乐、歌单和播客", "volume,media_toggle", "spotify");
+            Add(result, "foobar2000 播放器", "media", "播放音乐和播放列表", "volume,media_toggle", "foobar2000");
+            Add(result, "酷狗音乐", "media", "播放音乐和歌单", "volume,media_toggle", "kugou");
             Add(result, "腾讯视频", "media", "浏览或播放视频节目", "volume,media_toggle", "qqlive", "qqvideo", "tencentvideo");
             Add(result, "哔哩哔哩", "media", "浏览或播放视频、直播", "volume,media_toggle", "bilibili");
             Add(result, "优酷视频", "media", "浏览或播放视频节目", "volume,media_toggle", "youku");

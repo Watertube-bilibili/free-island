@@ -57,7 +57,7 @@ namespace FreeIsland
             window.BeginAnimation(Window.LeftProperty, new DoubleAnimation(origin.X, window.Left, TimeSpan.FromMilliseconds(220)) { FillBehavior = FillBehavior.Stop, EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
             window.BeginAnimation(Window.TopProperty, new DoubleAnimation(origin.Y, window.Top, TimeSpan.FromMilliseconds(220)) { FillBehavior = FillBehavior.Stop, EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
         }
-        public static Button Button(string title, Action action, string fill, bool primary = false)
+        public static Button Button(string title, Action action, string fill, bool primary = false, bool adaptiveInk = false)
         {
             var button = new Button { Content = title, Background = Brush(fill), Foreground = Brush(primary ? "#FFFFFF" : "#263553"), BorderThickness = new Thickness(0), Padding = new Thickness(12, 6, 12, 6), MinHeight = 34, Cursor = Cursors.Hand, FontSize = 12 };
             var template = new ControlTemplate(typeof(Button));
@@ -66,7 +66,9 @@ namespace FreeIsland
             var presenter = new FrameworkElementFactory(typeof(ContentPresenter)); presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center); presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center); presenter.SetValue(FrameworkElement.MarginProperty, new Thickness(8, 5, 8, 5));
             border.AppendChild(presenter); template.VisualTree = border;
             var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            border.Name = "Surface"; hover.Setters.Add(new Setter(Border.BackgroundProperty, Brush(primary ? "#4258D4" : "#E2E9F8"), "Surface")); template.Triggers.Add(hover);
+            border.Name = "Surface"; hover.Setters.Add(new Setter(Border.BackgroundProperty, Brush(primary ? "#4258D4" : "#E2E9F8"), "Surface"));
+            if (adaptiveInk && !primary) hover.Setters.Add(new Setter(System.Windows.Documents.TextElement.ForegroundProperty, Brush("#132133"), "Surface"));
+            template.Triggers.Add(hover);
             if (primary) { var pressed = new Trigger { Property = System.Windows.Controls.Primitives.ButtonBase.IsPressedProperty, Value = true }; pressed.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#3448BA"), "Surface")); template.Triggers.Add(pressed); }
             var focus = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true };
             focus.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#263DAF"), "Surface")); focus.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(2), "Surface")); template.Triggers.Add(focus);

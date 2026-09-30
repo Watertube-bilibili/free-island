@@ -24,6 +24,7 @@ namespace FreeIsland
         private readonly ScrollViewer conversation;
         private readonly TextBox input;
         private readonly Button send;
+        private readonly Button skills;
         private readonly TextBlock state;
         private readonly AssistantFlow flow;
         private readonly List<Button> prompts = new List<Button>();
@@ -45,6 +46,8 @@ namespace FreeIsland
             var header = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 7) };
             var close = Button("收起", delegate { CancelRequest(); island.DismissAssistant(); island.Collapse(); });
             AutomationProperties.SetName(close, "收起岛上对话"); DockPanel.SetDock(close, Dock.Right); header.Children.Add(close);
+            skills = Button("技能", ShowSkills); skills.Name = "ConversationSkills";
+            AutomationProperties.SetName(skills, "打开本地技能库"); DockPanel.SetDock(skills, Dock.Right); header.Children.Add(skills);
             flow = new AssistantFlow { Width = 38, Height = 28, Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
             DockPanel.SetDock(flow, Dock.Left); header.Children.Add(flow);
             var title = Copy("问浮岛", 21, "#18243A"); title.FontWeight = FontWeights.SemiBold; header.Children.Add(Readable(title)); Add(header, 0);
@@ -98,25 +101,93 @@ namespace FreeIsland
         }
 
         private void Add(UIElement item, int row) { SetRow(item, row); Children.Add(item); }
-        private static TextBlock Copy(string value, double size, string color) { var t = SurfaceStyle.Text(value, size, color); t.TextAlignment = TextAlignment.Left; t.TextWrapping = TextWrapping.Wrap; return t; }
+        private static TextBlock Copy(string value, double size, string color) { var t = SurfaceStyle.Text(value, size, color); t.TextAlignment = TextAlignment.Left; t.TextWrapping = TextWrapping.Wrap; t.FontWeight = FontWeights.Medium; return t; }
         private static Border Readable(UIElement child)
         {
-            // Conversation explicitly favors clear glass over text backing.
+            // A thin local tint supports the copy without fogging the full lens.
             var panel = new Border { Child = child, CornerRadius = new CornerRadius(10), Padding = new Thickness(5, 2, 5, 2), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
             panel.SetValue(LiquidGlass.ReadablePanelProperty, true); panel.SetValue(LiquidGlass.ClearPanelProperty, true); return panel;
         }
-        private static Button Button(string label, Action action) { var b = SurfaceStyle.Button(label, action, "#EEF1FF"); b.MinHeight = 44; AutomationProperties.SetName(b, label); return b; }
-        public void ApplyMaterial(int mode)
+        private static Button Button(string label, Action action)
+        {
+            var b = SurfaceStyle.Button(label, action, "#EEF1FF", false, true); b.MinHeight = 44; AutomationProperties.SetName(b, label);
+            return b;
+        }
+        public void ApplyMaterial(int mode, bool light)
         {
             bool clear = mode != 0 && !SystemParameters.HighContrast;
-            input.Background = clear ? Brushes.Transparent : SystemParameters.HighContrast ? SystemColors.WindowBrush : Brushes.White;
-            ApplySecondaryMaterial(this, clear ? Brushes.Transparent : SystemParameters.HighContrast ? SystemColors.WindowBrush : SurfaceStyle.Brush("#EEF1FF"));
+            Brush ink = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : clear ? light ? Brushes.White : SurfaceStyle.Brush("#132133") : SurfaceStyle.Brush("#18243A");
+            input.Foreground = ink;
+            input.CaretBrush = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : clear && light ? Brushes.White : SurfaceStyle.Brush("#4F66E8");
+            input.Background = clear ? LiquidGlass.ConversationTint(light) : SystemParameters.HighContrast ? SystemColors.WindowBrush : Brushes.White;
+            ApplySecondaryMaterial(this, clear ? LiquidGlass.ConversationTint(light) : SystemParameters.HighContrast ? SystemColors.WindowBrush : SurfaceStyle.Brush("#EEF1FF"), ink);
         }
-        private static void ApplySecondaryMaterial(DependencyObject host, Brush background)
+        private static void ApplySecondaryMaterial(DependencyObject host, Brush background, Brush foreground)
         {
             var button = host as Button;
-            if (button != null) { if (button.Name != "ConversationSend") button.Background = background; return; }
-            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(host); i++) ApplySecondaryMaterial(VisualTreeHelper.GetChild(host, i), background);
+            if (button != null) { if (button.Name != "ConversationSend") { button.Background = background; button.Foreground = foreground; } return; }
+            var editor = host as TextBox;
+            if (editor != null && editor.Name == "ConversationSkillName") { editor.Background = background; editor.Foreground = foreground; editor.CaretBrush = foreground; return; }
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(host); i++) ApplySecondaryMaterial(VisualTreeHelper.GetChild(host, i), background, foreground);
+        }
+        private void ShowSkills()
+        {
+            if (pending != null) return;
+            foreach (var control in proposedControls) control.IsEnabled = false;
+            proposedControls.Clear(); messages.Children.Clear();
+            Message("本地技能库", false);
+            if (!string.IsNullOrEmpty(assistant.Skills.Error)) { Message(assistant.Skills.Error, false); return; }
+            var saved = assistant.Skills.List();
+            if (saved.Count == 0) Message("还没有技能。告诉我「帮我创建一个课堂练习技能，包含五分钟计时和音量控制」，生成后点「保存技能」。", false);
+            foreach (var item in saved)
+            {
+                var skill = item;
+                Message(skill.Name + "\n" + string.Join(" · ", skill.Actions.Select(ActionLabel)), false);
+                var row = new WrapPanel { Margin = new Thickness(0, -10, 0, 16) };
+                var open = Button("展开技能", delegate { PreviewSkill(skill); });
+                AutomationProperties.SetName(open, "展开技能：" + skill.Name); open.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(open);
+                var remove = Button("移除", delegate
+                {
+                    try { assistant.Skills.Remove(skill.Id); ShowSkills(); state.Text = "已从本地技能库移除"; }
+                    catch (Exception ex) { state.Text = ex.Message; }
+                });
+                AutomationProperties.SetName(remove, "移除技能：" + skill.Name); row.Children.Add(remove); messages.Children.Add(row);
+            }
+            state.Text = "最多 12 个技能 · 展开后逐项确认";
+            island.ResizeAssistant(548); conversation.ScrollToHome(); island.RefreshAssistantInk();
+        }
+        private void PreviewSkill(LocalAiSkill skill)
+        {
+            if (pending != null) return;
+            foreach (var control in proposedControls) control.IsEnabled = false;
+            proposedControls.Clear(); messages.Children.Clear();
+            Message(skill.Name + "\n点击下方操作才会执行。", false);
+            AddActions(skill.Actions, false); state.Text = "技能已展开 · 尚未执行";
+            conversation.ScrollToHome(); island.RefreshAssistantInk();
+        }
+        private static string ActionLabel(LocalAiAction action)
+        {
+            return action.Kind == "countdown" ? TimeSpan.FromSeconds(action.Seconds).ToString(@"h\:mm\:ss") + " 倒计时" :
+                action.Kind == "volume" ? "音量滑块" : action.Kind == "media_toggle" ? "系统播放 / 暂停" :
+                action.Kind == "open_timer" ? "打开倒计时" : "打开日程提醒";
+        }
+        private void OfferSaveSkill(IList<LocalAiAction> actions)
+        {
+            var row = new Grid { Margin = new Thickness(0, 4, 0, 16) };
+            row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var name = new TextBox { Name = "ConversationSkillName", Text = "我的组合技能", MaxLength = 24, MinHeight = 44,
+                FontSize = textSize, Padding = new Thickness(8), VerticalContentAlignment = VerticalAlignment.Center,
+                BorderBrush = SurfaceStyle.Brush("#AAB6C8"), BorderThickness = new Thickness(1) };
+            AutomationProperties.SetName(name, "技能名称，最多24字"); row.Children.Add(name);
+            Button save = null;
+            save = Button("保存技能", delegate
+            {
+                try { assistant.Skills.Save(name.Text, actions); save.Content = "已保存"; save.IsEnabled = false; name.IsReadOnly = true; state.Text = "已保存 · 顶部「技能」可再次展开"; }
+                catch (Exception ex) { state.Text = ex.Message; }
+            });
+            save.Name = "ConversationSaveSkill"; save.Margin = new Thickness(6, 0, 0, 0); Grid.SetColumn(save, 1); row.Children.Add(save);
+            messages.Children.Add(row); proposedControls.Add(name); proposedControls.Add(save);
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(island.RefreshAssistantInk));
         }
         private void Message(string value, bool user)
         {
@@ -142,7 +213,7 @@ namespace FreeIsland
             foreach (var control in proposedControls) control.IsEnabled = false;
             proposedControls.Clear();
             foreach (var button in prompts) button.IsEnabled = false;
-            send.Content = "停止"; input.IsReadOnly = true; flow.Busy = true; state.Text = "正在本机思考…";
+            send.Content = "停止"; input.IsReadOnly = true; skills.IsEnabled = false; flow.Busy = true; state.Text = "正在本机思考…";
             Message(request, true); conversation.ScrollToEnd();
             try
             {
@@ -159,29 +230,37 @@ namespace FreeIsland
             finally
             {
                 if (ReferenceEquals(pending, cts)) pending = null; cts.Dispose(); flow.Busy = false;
-                send.Content = "发送"; input.IsReadOnly = false; foreach (var button in prompts) button.IsEnabled = true;
+                send.Content = "发送"; input.IsReadOnly = false; skills.IsEnabled = true; foreach (var button in prompts) button.IsEnabled = true;
                 if (!closed) FocusInput();
             }
         }
-        private void AddActions(IList<LocalAiAction> actions)
+        private void AddActions(IList<LocalAiAction> actions, bool offerSave = true)
         {
             if (actions == null) return;
+            var reusable = new List<LocalAiAction>();
             // Only the existing, bounded tool vocabulary can become controls.
             foreach (var action in actions.Take(3))
             {
                 var proposal = action; if (proposal == null) continue;
                 if (proposal.Kind == "volume")
                 {
+                    reusable.Add(proposal);
                     int level = 50; bool available = engine.IsSafeMode || SystemVolume.TryGet(out level);
                     var label = Copy(available ? "系统音量  " + level + "%" : "未找到音频设备", textSize, "#18243A"); messages.Children.Add(Readable(label));
                     var slider = new Slider { Name = "ConversationVolume", Minimum = 0, Maximum = 100, Value = level, IsEnabled = available, MinHeight = 44, IsMoveToPointEnabled = true };
                     ControlWindow.ApplyTouchSlider(slider);
                     AutomationProperties.SetName(slider, "对话中的系统音量");
-                    slider.ValueChanged += delegate { label.Text = engine.IsSafeMode || SystemVolume.TrySet((int)slider.Value) ? "系统音量  " + (int)slider.Value + "%" : "音频设备已变化"; };
+                    slider.ValueChanged += delegate
+                    {
+                        bool changed = engine.IsSafeMode || SystemVolume.TrySet((int)slider.Value);
+                        label.Text = changed ? "系统音量  " + (int)slider.Value + "%" : "音频设备已变化";
+                        state.Text = changed ? engine.IsSafeMode ? "演示：已调整音量" : "系统音量已调整" : "音频设备已变化";
+                    };
                     messages.Children.Add(slider); proposedControls.Add(slider); continue;
                 }
                 if (proposal.Kind != "countdown" && proposal.Kind != "media_toggle" && proposal.Kind != "open_timer" && proposal.Kind != "open_reminders") continue;
                 if (proposal.Kind == "countdown" && (proposal.Seconds < 60 || proposal.Seconds > 14400)) continue;
+                reusable.Add(proposal);
                 string labelText = proposal.Kind == "countdown" ? "确认开始 " + TimeSpan.FromSeconds(proposal.Seconds).ToString(@"h\:mm\:ss") + " 倒计时" : proposal.Kind == "media_toggle" ? "系统播放 / 暂停" : proposal.Kind == "open_timer" ? "打开倒计时" : "打开日程提醒";
                 var button = Button(labelText, delegate
                 {
@@ -195,6 +274,7 @@ namespace FreeIsland
                 });
                 button.Margin = new Thickness(0, 0, 0, 8); button.HorizontalAlignment = HorizontalAlignment.Stretch; messages.Children.Add(button); proposedControls.Add(button);
             }
+            if (offerSave && reusable.Count > 0) OfferSaveSkill(reusable);
         }
     }
 

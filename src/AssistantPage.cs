@@ -28,8 +28,8 @@ namespace FreeIsland
             if (assistant == null) page.Children.Add(EmptyState("本地助手", "从正在运行的浮岛打开此页面以设置助手。"));
             else
             {
-                page.Children.Add(Setting("轻量场景快捷操作", "识别播放器、演示文稿和编辑器，提供音量、计时与日程入口。无需下载模型。", assistant.Preferences.RuleShortcutsEnabled, delegate(bool enabled) { assistant.Preferences.RuleShortcutsEnabled = enabled; assistant.Save(); }));
-                page.Children.Add(Setting("结合前台窗口标题识别场景", "可识别浏览器里的视频、网课与文档。只在本机使用标题，不读取页面正文、截图或剪贴板。", assistant.Preferences.IncludeWindowTitle, delegate(bool enabled) { assistant.Preferences.IncludeWindowTitle = enabled; assistant.Save(); }));
+                page.Children.Add(Setting("轻量场景快捷操作", "只在已知播放器和 Chrome 音视频页面推荐媒体操作，普通网页保持安静。无需下载模型。", assistant.Preferences.RuleShortcutsEnabled, delegate(bool enabled) { assistant.Preferences.RuleShortcutsEnabled = enabled; assistant.Save(); }));
+                page.Children.Add(Setting("向本地模型提供窗口标题", "Chrome 标题默认只在本地判断媒体页面。开启后，其他应用也可读取标题，并将标题附带给本地模型；不读取正文、截图或剪贴板。", assistant.Preferences.IncludeWindowTitle, delegate(bool enabled) { assistant.Preferences.IncludeWindowTitle = enabled; assistant.Save(); }));
                 var chatEntry = Btn("打开岛上对话", delegate { var handler = ChatRequested; if (handler != null) handler(); }, true);
                 chatEntry.Margin = new Thickness(0, 12, 0, 6); page.Children.Add(chatEntry);
                 var recognized = T("", SmallSize, muted); page.Children.Add(recognized);

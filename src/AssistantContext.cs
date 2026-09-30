@@ -39,6 +39,16 @@ namespace FreeIsland
 
         public static AssistantContextSnapshot Capture(bool includeTitle)
         {
+            return CaptureCore(includeTitle, false);
+        }
+
+        internal static AssistantContextSnapshot CaptureForSuggestions(bool includeTitle)
+        {
+            return CaptureCore(includeTitle, true);
+        }
+
+        private static AssistantContextSnapshot CaptureCore(bool includeTitle, bool automatic)
+        {
             try
             {
                 IntPtr window = GetForegroundWindow();
@@ -52,7 +62,7 @@ namespace FreeIsland
                 if (processName.Length == 0 || IsOwnProcess(processName)) return Empty();
 
                 string title = "";
-                if (includeTitle)
+                if (includeTitle || automatic && processName == "chrome")
                 {
                     var buffer = new StringBuilder(161);
                     GetWindowText(window, buffer, buffer.Capacity);
@@ -68,7 +78,7 @@ namespace FreeIsland
                     && Math.Abs((long)bounds.Bottom - monitor.Monitor.Bottom) <= 2;
                 // Do not label metadata from two foreground windows as one snapshot.
                 if (GetForegroundWindow() != window) return Empty();
-                return Create(processName, title, full, includeTitle);
+                return automatic ? CreateForSuggestions(processName, title, full, includeTitle) : Create(processName, title, full, includeTitle);
             }
             catch { return Empty(); }
         }
@@ -147,6 +157,45 @@ namespace FreeIsland
             };
         }
 
+        internal static AssistantContextSnapshot CreateForSuggestions(string processName, string windowTitle, bool fullScreen, bool includeTitle)
+        {
+            string name = NormalizeProcess(processName);
+            bool chrome = name == "chrome";
+            AssistantContextSnapshot snapshot = Create(name, windowTitle, fullScreen, includeTitle || chrome);
+            if (chrome)
+            {
+                bool media = IsMediaBrowserTitle(snapshot.WindowTitle);
+                snapshot.Category = media ? "media" : "browser";
+                snapshot.Description = media ? "Google Chrome · 已识别音视频页面 · 依据：进程与标题" : "Google Chrome · 普通网页，不自动建议";
+                if (fullScreen) snapshot.Description += " · 全屏窗口";
+                // Chrome titles are authorized for local media recognition. The opt-in
+                // still controls whether their text is exposed to chat or the model.
+                if (!includeTitle)
+                {
+                    snapshot.WindowTitle = "";
+                    snapshot.ModelContext = "前台进程=chrome；识别类别=" + snapshot.Category + "；全屏=" + (fullScreen ? "是" : "否")
+                        + "；Chrome 标题仅用于本地媒体识别，不提供原文；可用快捷操作=" + (media ? "volume,media_toggle" : "无");
+                }
+            }
+            return snapshot;
+        }
+
+        internal static bool IsAutomaticMedia(AssistantContextSnapshot snapshot)
+        {
+            if (snapshot == null || snapshot.Category != "media") return false;
+            AssistantSoftwareKnowledge known = AssistantKnowledge.Lookup(snapshot.ProcessName);
+            return snapshot.ProcessName == "chrome" || known != null && known.Category == "media";
+        }
+
+        internal static bool IsMediaBrowserTitle(string title)
+        {
+            title = CleanTitle(title);
+            title = Regex.Replace(title, @"\s*[-|—–]\s*(?:Google Chrome|Chrome|谷歌浏览器)\s*$", "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            // Require a site label at the end, not a keyword in search results,
+            // a software download page, documentation, or an arbitrary page title.
+            return Regex.IsMatch(title, @"(?:^|[-|_—–])\s*(?:YouTube(?: Music)?|哔哩哔哩(?:_bilibili)?|bilibili|腾讯视频|优酷|爱奇艺|芒果TV|网易云音乐|QQ音乐|QQ 音乐|Spotify)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
         internal static string CleanTitle(string title)
         {
             var text = new StringBuilder();
@@ -200,17 +249,22 @@ namespace FreeIsland
         }
         internal bool CanPresent(AssistantContextSnapshot snapshot, DateTime now, DateTime snoozedUntil)
         {
-            if (snapshot == null || snapshot.ProcessName.Length == 0 || snapshot.IsFullScreen || now < snoozedUntil || now - lastPresented < TimeSpan.FromMinutes(10)) return false;
+            if (!AssistantContext.IsAutomaticMedia(snapshot) || snapshot.IsFullScreen || now < snoozedUntil || now - lastPresented < TimeSpan.FromMinutes(10)) return false;
             DateTime previous;
             // Browser titles and fullscreen transitions must not bypass the app cooldown.
             return !presented.TryGetValue(snapshot.ProcessName, out previous) || now - previous >= TimeSpan.FromMinutes(30);
         }
         internal bool TryBegin(AssistantContextSnapshot snapshot, DateTime now, DateTime snoozedUntil)
         {
-            Observe(snapshot == null || snapshot.IsFullScreen ? "" : snapshot.Fingerprint, now);
+            Observe(!AssistantContext.IsAutomaticMedia(snapshot) || snapshot.IsFullScreen ? "" : snapshot.Fingerprint, now);
             if (!CanPresent(snapshot, now, snoozedUntil) || current.Length == 0 || now - since < TimeSpan.FromSeconds(15) || now - lastRequest < TimeSpan.FromMinutes(1)) return false;
             lastRequest = now;
             return true;
+        }
+        internal bool CanPresentResult(AssistantContextSnapshot requested, AssistantContextSnapshot currentSnapshot, DateTime now, DateTime snoozedUntil)
+        {
+            return requested != null && currentSnapshot != null && requested.Fingerprint == currentSnapshot.Fingerprint
+                && CanPresent(currentSnapshot, now, snoozedUntil);
         }
         internal void MarkPresented(string processName, DateTime now)
         {

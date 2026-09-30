@@ -47,6 +47,7 @@ namespace FreeIsland
         private string savedModel;
         private int operationVersion;
         public LocalAiService Service { get; private set; }
+        internal LocalAiSkillStore Skills { get; private set; }
         public string ModelDirectory { get { return modelDirectory; } }
         public AssistantPreferences Preferences { get; private set; }
         public string LastError { get; private set; }
@@ -61,6 +62,7 @@ namespace FreeIsland
         public AssistantController(string directory, bool safeMode, CoreEngine engine, Func<bool> canPresent)
         {
             this.engine = engine; this.canPresent = canPresent; safe = safeMode;
+            Skills = new LocalAiSkillStore(directory);
             settingsPath = Path.Combine(directory, "assistant-settings.json");
             defaultModelDirectory = Path.GetFullPath(Path.Combine(directory, "local-ai"));
             Preferences = new AssistantPreferences();
@@ -327,9 +329,9 @@ namespace FreeIsland
         public async void Poll()
         {
             if (disposed || safe || polling || chatting || changingDirectory || DateTime.UtcNow < SuggestionsSnoozedUntilUtc || (!Preferences.Enabled && !Preferences.RuleShortcutsEnabled)) return;
-            AssistantContextSnapshot snapshot = AssistantContext.Capture(Preferences.IncludeWindowTitle);
+            AssistantContextSnapshot snapshot = AssistantContext.CaptureForSuggestions(Preferences.IncludeWindowTitle);
             var now = DateTime.UtcNow;
-            contextGate.Observe(snapshot.IsFullScreen ? "" : snapshot.Fingerprint, now);
+            contextGate.Observe(!AssistantContext.IsAutomaticMedia(snapshot) || snapshot.IsFullScreen ? "" : snapshot.Fingerprint, now);
             if (snapshot.ProcessName.Length == 0) return;
             LastContext = snapshot;
             if (!canPresent() || (engine.ShutdownRemaining.HasValue && engine.ShutdownRemaining.Value.TotalSeconds <= 30) || Service.IsBusy) return;
@@ -344,6 +346,7 @@ namespace FreeIsland
                 await requests.WaitAsync(sourceToken.Token);
                 entered = true;
                 if (chatting || disposed || version != operationVersion) return;
+                if (!contextGate.CanPresentResult(snapshot, AssistantContext.CaptureForSuggestions(Preferences.IncludeWindowTitle), DateTime.UtcNow, SuggestionsSnoozedUntilUtc)) return;
                 IList<LocalAiAction> actions = null; string source = "场景快捷操作";
                 if (Preferences.Enabled && now >= retryAfter)
                 {
@@ -358,11 +361,12 @@ namespace FreeIsland
                     catch (OperationCanceledException) { return; }
                     catch (Exception ex) { if (version == operationVersion) { LastError = ex.Message; retryAfter = DateTime.UtcNow.AddSeconds(30); } }
                 }
-                if ((actions == null || actions.Count == 0) && Preferences.RuleShortcutsEnabled) { actions = RuleActions(snapshot); source = "场景快捷操作"; }
+                actions = AutomaticActions(snapshot, actions);
+                if (actions.Count == 0 && Preferences.RuleShortcutsEnabled) { actions = AutomaticActions(snapshot, RuleActions(snapshot)); source = "场景快捷操作"; }
                 sourceToken.Token.ThrowIfCancellationRequested();
                 if (disposed || chatting || version != operationVersion || includeTitle != Preferences.IncludeWindowTitle || (!Preferences.Enabled && !Preferences.RuleShortcutsEnabled) || !canPresent() || (engine.ShutdownRemaining.HasValue && engine.ShutdownRemaining.Value.TotalSeconds <= 30)) return;
-                AssistantContextSnapshot current = AssistantContext.Capture(Preferences.IncludeWindowTitle);
-                if (current.Fingerprint != snapshot.Fingerprint || !contextGate.CanPresent(current, DateTime.UtcNow, SuggestionsSnoozedUntilUtc)) return;
+                AssistantContextSnapshot current = AssistantContext.CaptureForSuggestions(Preferences.IncludeWindowTitle);
+                if (!contextGate.CanPresentResult(snapshot, current, DateTime.UtcNow, SuggestionsSnoozedUntilUtc)) return;
                 if (actions != null && actions.Count > 0)
                 {
                     var handler = Suggested;
@@ -391,6 +395,15 @@ namespace FreeIsland
         public static IList<LocalAiAction> RuleActions(string processName)
         {
             return RuleActions(AssistantContext.Create(processName, "", false, false));
+        }
+
+        internal static IList<LocalAiAction> AutomaticActions(AssistantContextSnapshot snapshot, IList<LocalAiAction> actions)
+        {
+            var allowed = new List<LocalAiAction>();
+            if (!AssistantContext.IsAutomaticMedia(snapshot) || actions == null) return allowed;
+            foreach (LocalAiAction action in actions)
+                if (action != null && (action.Kind == "volume" || action.Kind == "media_toggle" || action.Kind == "countdown" || action.Kind == "open_timer" || action.Kind == "open_reminders")) allowed.Add(action);
+            return allowed;
         }
 
         public static IList<LocalAiAction> RuleActions(AssistantContextSnapshot snapshot)

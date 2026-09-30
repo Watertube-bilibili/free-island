@@ -18,7 +18,12 @@ Category Classify(const std::wstring& executableName) {
     if (name == L"winword.exe" || name == L"wps.exe" || name == L"notepad.exe" || name == L"code.exe") return Category::Writing;
     return Category::None;
 }
-std::wstring ForegroundExecutable(DWORD ownProcess) {
+bool CoversMonitor(const RECT& window, const RECT& monitor) {
+    return std::abs((long long)window.left - monitor.left) <= 2 && std::abs((long long)window.top - monitor.top) <= 2
+        && std::abs((long long)window.right - monitor.right) <= 2 && std::abs((long long)window.bottom - monitor.bottom) <= 2;
+}
+std::wstring ForegroundExecutable(DWORD ownProcess, bool* fullScreen) {
+    if (fullScreen) *fullScreen = false;
     HWND foreground = GetForegroundWindow(); DWORD pid = 0;
     if (!foreground || !GetWindowThreadProcessId(foreground, &pid) || pid == ownProcess) return L"";
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
@@ -26,6 +31,12 @@ std::wstring ForegroundExecutable(DWORD ownProcess) {
     wchar_t path[32768] = {}; DWORD length = 32768;
     bool ok = QueryFullProcessImageNameW(process, 0, path, &length) != FALSE;
     CloseHandle(process);
+    if (fullScreen) {
+        RECT bounds = {}; MONITORINFO monitor = {}; monitor.cbSize = sizeof(monitor);
+        *fullScreen = GetWindowRect(foreground, &bounds) && GetMonitorInfoW(MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST), &monitor)
+            && CoversMonitor(bounds, monitor.rcMonitor);
+    }
+    if (GetForegroundWindow() != foreground) { if (fullScreen) *fullScreen = false; return L""; }
     return ok ? Lower(std::wstring(path, length)) : L"";
 }
 std::wstring Title(Category category) {
@@ -34,18 +45,26 @@ std::wstring Title(Category category) {
 std::wstring Detail(Category category) {
     return category == Category::Media ? L"本地规则建议 · 拖动调整系统音量" : category == Category::Presentation ? L"本地规则建议 · 点击开始正向计时" : L"本地规则建议 · 点击开始 25 分钟倒计时";
 }
-bool Suggestions::Observe(const std::wstring& executable, uint64_t now, bool enabled) {
+bool Suggestions::Observe(const std::wstring& executable, uint64_t now, bool enabled, bool fullScreen) {
     Category before = current_;
     if (!enabled) { current_ = Category::None; executable_.clear(); candidate_.clear(); dismissed_.clear(); return before != current_; }
     if (current_ != Category::None && now >= expires_) Dismiss(now);
+    if (fullScreen) { current_ = Category::None; executable_.clear(); candidate_.clear(); stableSince_ = now; return before != current_; }
     // An empty observation represents an unavailable or our own foreground window.
-    if (executable.empty()) return before != current_;
+    if (executable.empty()) { candidate_.clear(); stableSince_ = now; return before != current_; }
     const std::wstring name = Lower(executable);
     if (name != candidate_) { candidate_ = name; stableSince_ = now; if (name != dismissed_) dismissed_.clear(); }
     if (current_ != Category::None && name != executable_) { current_ = Category::None; executable_.clear(); }
     Category category = Classify(name);
-    if (category != Category::None && name != dismissed_ && now - stableSince_ >= 3000 && (!shown_ || now - lastShown_ >= 60000) && current_ == Category::None) {
+    const auto previous = shownApplications_.find(name);
+    bool applicationReady = previous == shownApplications_.end() || (now >= previous->second && now - previous->second >= 1800000);
+    if (category != Category::None && name != dismissed_ && now >= stableSince_ && now - stableSince_ >= 15000
+        && (!shown_ || (now >= lastShown_ && now - lastShown_ >= 600000)) && applicationReady && current_ == Category::None) {
         current_ = category; executable_ = name; lastShown_ = now; shown_ = true; expires_ = now + 25000;
+        for (auto item = shownApplications_.begin(); item != shownApplications_.end();) {
+            if (now >= item->second && now - item->second >= 1800000) item = shownApplications_.erase(item); else ++item;
+        }
+        shownApplications_[name] = now;
     }
     return before != current_;
 }

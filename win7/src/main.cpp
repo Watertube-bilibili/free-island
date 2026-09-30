@@ -426,9 +426,10 @@ void App::PopupTray(){HMENU m=CreatePopupMenu();AppendMenuW(m,MF_STRING,400,L"æ‰
 void App::ContextTick(){
  if(safe||!engine->settings.contextShortcuts||engine->ShutdownVisible()||IsWindowVisible(stage)||island->down)return;
  uint64_t now=GetTickCount64();if(now<contextPoll)return;contextPoll=now+3000;
- if(suggestions.Observe(fiContext::ForegroundExecutable(GetCurrentProcessId()),now,true)){
+ bool fullScreen=false;std::wstring executable=fiContext::ForegroundExecutable(GetCurrentProcessId(),&fullScreen);
+ if(suggestions.Observe(executable,now,true,fullScreen)){
   PositionIsland();handleFrame.clear();islandFrame.clear();
-  if(suggestions.Current()!=fiContext::Category::None){fiContext::ReadVolume(systemVolume,false);ShowIsland("");islandUntil=now+12000;}
+  if(suggestions.Current()!=fiContext::Category::None){fiContext::ReadVolume(systemVolume,false);std::wstring current=fiContext::ForegroundExecutable(GetCurrentProcessId(),&fullScreen);if(fullScreen||current!=suggestions.Executable()){suggestions.Dismiss(now);if(island->Visible())island->Render();return;}ShowIsland("");islandUntil=now+12000;}
   else if(island->Visible())island->Render();
  }
 }
@@ -468,9 +469,9 @@ void App::CheckContextAudio(){
   Command(scene==0?10:11);std::wstring prefix=scene==0?L"classroom-":L"desktop-";
   Navigate(5);Command(335);check(Child(420)&&Child(424)&&Child(428)&&Child(1140),"Audio controls missing");Command(421);Command(439);Capture(prefix+L"alert-audio",main);
   Command(331);Command(336);Capture(prefix+L"context-preferences",main);
-  suggestions=fiContext::Suggestions();suggestions.Observe(L"vlc.exe",1000,true);suggestions.Observe(L"vlc.exe",4000,true);check(suggestions.Current()==fiContext::Category::Media,"Media shortcut classification");systemVolume=50;PositionIsland();ShowIsland("");Capture(prefix+L"context-volume",island->hwnd);
+  suggestions=fiContext::Suggestions();suggestions.Observe(L"vlc.exe",1000,true);suggestions.Observe(L"vlc.exe",16000,true);check(suggestions.Current()==fiContext::Category::Media,"Media shortcut classification");systemVolume=50;PositionIsland();ShowIsland("");Capture(prefix+L"context-volume",island->hwnd);
   RECT bounds=island->Bounds(),track=island->volumeTrack;POINT from={bounds.left+track.left,bounds.top+(track.top+track.bottom)/2},to={bounds.left+track.right,bounds.top+(track.top+track.bottom)/2};island->Press(from);island->Move(to);island->Release(to);check(systemVolume==100&&!island->volumeDrag,"Volume drag must reach endpoint without moving island");TaskAction(920);TaskAction(921);check(suggestions.Current()==fiContext::Category::None,"Dismiss removes suggestion");
-  suggestions=fiContext::Suggestions();suggestions.Observe(L"notepad.exe",1000,true);suggestions.Observe(L"notepad.exe",4000,true);TaskAction(920);check(engine->countdownActive&&engine->CountdownDurationMs()==1500000,"Explicit writing action creates focus countdown");engine->CancelCountdown();CollapseIsland();
+  suggestions=fiContext::Suggestions();suggestions.Observe(L"notepad.exe",1000,true);suggestions.Observe(L"notepad.exe",16000,true);TaskAction(920);check(engine->countdownActive&&engine->CountdownDurationMs()==1500000,"Explicit writing action creates focus countdown");engine->CancelCountdown();CollapseIsland();
  }
  std::wstring path=ExeDir()+L"\\smoke-artifacts\\context-audio-result.txt";HANDLE file=CreateFileW(path.c_str(),GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);const char*result="PASS: desktop and classroom audio settings, three browse/preview/default rows, stop and volume controls; rules preference and honest native model limitation; media island drag slider endpoint; explicit media action; dismissal; writing focus action. Safe fixture never changes actual volume, sends media keys, plays audio or downloads models.\r\n";DWORD written=0;WriteFile(file,result,(DWORD)strlen(result),&written,NULL);CloseHandle(file);
 }

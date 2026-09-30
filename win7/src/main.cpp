@@ -222,7 +222,7 @@ void App::Paint(Graphics&g){Quality(g);g.ScaleTransform(mainDpi,mainDpi);g.Clear
   for(int i=0;i<3;i++){float row=y+72+i*92;auto path=alertAudio->Path((fi::AlertSoundKind)i);size_t slash=path.find_last_of(L"\\/");std::wstring name=path.empty()?L"系统默认提示音":path.substr(slash==std::wstring::npos?0:slash+1);Text(g,labels[i],x,row,w-352,30,20,INK,true);Text(g,name,x,row+34,w-352,34,small,MUTED);}
   Text(g,L"提醒音量",x,y+370,110,54,small,INK,true);Text(g,Number(alertAudio->VolumePercent())+L"% · WAV / MP3；自选音乐最长 30 秒，关机 10 秒。默认提示音跟随系统。",x,y+431,w,32,small,MUTED);
  }
- else if(page==5&&settingsTab==5){Text(g,L"随当前应用出现的快捷操作",x,y+72,w,42,26,INK,true);Text(g,L"播放器显示音量滑块；演示可开始计时；编辑时可启动专注倒计时。",x,y+120,w,44,small,MUTED,false,0,true);Text(g,L"本版本使用本地规则，不是模型 AI。开启后仅识别前台程序名，不读取窗口标题、画面、文件或剪贴板。操作需要你点击。",x,y+246,w,88,small,MUTED,false,0,true);Text(g,L"可选 llama.cpp 模型在 Windows 10/11 64 位的标准版提供。Win7 原生版保持无 .NET、无需下载模型。",x,y+432,w,48,small,MUTED,false,0,true);}
+ else if(page==5&&settingsTab==5){Text(g,L"随当前应用出现的快捷操作",x,y+72,w,42,26,INK,true);Text(g,L"仅为已知播放器和 Chrome 音视频页面提供音量与播放控制，普通网页保持安静。",x,y+120,w,44,small,MUTED,false,0,true);Text(g,L"本版本使用本地规则。Chrome 标题仅在本机判断媒体页面；不读取页面正文、画面、文件或剪贴板。操作需要你点击。",x,y+246,w,88,small,MUTED,false,0,true);Text(g,L"可选 llama.cpp 模型在 Windows 10/11 64 位的标准版提供。Win7 原生版保持无 .NET、无需下载模型。",x,y+432,w,48,small,MUTED,false,0,true);}
  else if(page==5&&settingsTab==3){auto status=updater->Get();Text(g,L"浮岛 Win7  "+updateVersion,x,y+66,w,44,26,INK,true);Text(g,status.message,x,y+132,w,90,20,INK,false,0,true);if(status.phase==fiUpdate::Phase::Downloading){Box(g,x,y+246,w,8,LINE,4);Box(g,x,y+246,w*status.percent/100.0f,8,BLUE,4);Text(g,Number(status.percent)+L"%",x,y+263,w,28,14,MUTED,false,2);}Text(g,registeredInstall.empty()?L"便携版会下载并校验更新；点击打开安装包后由你选择安装。":L"启动 30 秒后检查；每 6 小时复查。关窗且所有任务结束后安装。",x,y+374,w,64,16,MUTED,false,0,true);}
  else if(page==5&&settingsTab==2){Text(g,L"有任务时自动变成计时缩略图",x,y+68,w,40,24,INK,true);Text(g,L"40–160 px · 无任务时恢复小点 · 大屏保留更大的触控区域",x,y+286,w,44,small,MUTED);}
  else if(page==5){
@@ -426,10 +426,10 @@ void App::PopupTray(){HMENU m=CreatePopupMenu();AppendMenuW(m,MF_STRING,400,L"�
 void App::ContextTick(){
  if(safe||!engine->settings.contextShortcuts||engine->ShutdownVisible()||IsWindowVisible(stage)||island->down)return;
  uint64_t now=GetTickCount64();if(now<contextPoll)return;contextPoll=now+3000;
- bool fullScreen=false;std::wstring executable=fiContext::ForegroundExecutable(GetCurrentProcessId(),&fullScreen);
- if(suggestions.Observe(executable,now,true,fullScreen)){
+ bool fullScreen=false;std::wstring chromeTitle;std::wstring executable=fiContext::ForegroundExecutable(GetCurrentProcessId(),&fullScreen,&chromeTitle);
+ if(suggestions.Observe(executable,now,true,fullScreen,chromeTitle)){
   PositionIsland();handleFrame.clear();islandFrame.clear();
-  if(suggestions.Current()!=fiContext::Category::None){fiContext::ReadVolume(systemVolume,false);std::wstring current=fiContext::ForegroundExecutable(GetCurrentProcessId(),&fullScreen);if(fullScreen||current!=suggestions.Executable()){suggestions.Dismiss(now);if(island->Visible())island->Render();return;}ShowIsland("");islandUntil=now+12000;}
+  if(suggestions.Current()!=fiContext::Category::None){fiContext::ReadVolume(systemVolume,false);std::wstring current=fiContext::ForegroundExecutable(GetCurrentProcessId(),&fullScreen,&chromeTitle);if(fullScreen||!suggestions.Matches(current,chromeTitle)){suggestions.Dismiss(now);if(island->Visible())island->Render();return;}ShowIsland("");islandUntil=now+12000;}
   else if(island->Visible())island->Render();
  }
 }
@@ -443,7 +443,7 @@ void App::ContextAction(int id){
  auto category=suggestions.Current();if(category==fiContext::Category::None)return;
  if(id==921){suggestions.Dismiss(GetTickCount64());PositionIsland();island->Render();return;}
  if(id!=920)return;
- if(category==fiContext::Category::Media){if(!fiContext::ToggleMedia(suggestions.Executable(),safe))Notify(L"播放器已切换，请回到原播放器后再试。");return;}
+ if(category==fiContext::Category::Media){if(!fiContext::ToggleMedia(suggestions.Executable(),safe,suggestions.WindowTitle()))Notify(L"播放器已切换，请回到原播放器后再试。");return;}
  if(category==fiContext::Category::Presentation){if(!engine->stopwatchActive)engine->ToggleStopwatch();ShowIsland("stopwatch");}
  else if(category==fiContext::Category::Writing){if(engine->countdownActive){Notify(L"已有倒计时，保留当前任务。");ShowIsland("countdown");return;}engine->StartCountdown(25*60000LL);ShowIsland("countdown");}
  suggestions.Dismiss(GetTickCount64());PositionIsland();island->Render();Layout();
@@ -471,9 +471,9 @@ void App::CheckContextAudio(){
   Command(331);Command(336);Capture(prefix+L"context-preferences",main);
   suggestions=fiContext::Suggestions();suggestions.Observe(L"vlc.exe",1000,true);suggestions.Observe(L"vlc.exe",16000,true);check(suggestions.Current()==fiContext::Category::Media,"Media shortcut classification");systemVolume=50;PositionIsland();ShowIsland("");Capture(prefix+L"context-volume",island->hwnd);
   RECT bounds=island->Bounds(),track=island->volumeTrack;POINT from={bounds.left+track.left,bounds.top+(track.top+track.bottom)/2},to={bounds.left+track.right,bounds.top+(track.top+track.bottom)/2};island->Press(from);island->Move(to);island->Release(to);check(systemVolume==100&&!island->volumeDrag,"Volume drag must reach endpoint without moving island");TaskAction(920);TaskAction(921);check(suggestions.Current()==fiContext::Category::None,"Dismiss removes suggestion");
-  suggestions=fiContext::Suggestions();suggestions.Observe(L"notepad.exe",1000,true);suggestions.Observe(L"notepad.exe",16000,true);TaskAction(920);check(engine->countdownActive&&engine->CountdownDurationMs()==1500000,"Explicit writing action creates focus countdown");engine->CancelCountdown();CollapseIsland();
+  suggestions=fiContext::Suggestions();suggestions.Observe(L"notepad.exe",1000,true);suggestions.Observe(L"notepad.exe",16000,true);TaskAction(920);check(suggestions.Current()==fiContext::Category::None&&!engine->countdownActive,"Editor never gets an automatic suggestion");CollapseIsland();
  }
- std::wstring path=ExeDir()+L"\\smoke-artifacts\\context-audio-result.txt";HANDLE file=CreateFileW(path.c_str(),GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);const char*result="PASS: desktop and classroom audio settings, three browse/preview/default rows, stop and volume controls; rules preference and honest native model limitation; media island drag slider endpoint; explicit media action; dismissal; writing focus action. Safe fixture never changes actual volume, sends media keys, plays audio or downloads models.\r\n";DWORD written=0;WriteFile(file,result,(DWORD)strlen(result),&written,NULL);CloseHandle(file);
+ std::wstring path=ExeDir()+L"\\smoke-artifacts\\context-audio-result.txt";HANDLE file=CreateFileW(path.c_str(),GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);const char*result="PASS: desktop and classroom audio settings, three browse/preview/default rows, stop and volume controls; rules preference and honest native model limitation; media island drag slider endpoint; explicit media action; dismissal; editor does not produce automatic suggestions. Safe fixture never changes actual volume, sends media keys, plays audio or downloads models.\r\n";DWORD written=0;WriteFile(file,result,(DWORD)strlen(result),&written,NULL);CloseHandle(file);
 }
 void App::Initialize(bool silent){WNDCLASSEXW wc={sizeof(wc)};wc.hInstance=instance;wc.hCursor=LoadCursor(NULL,IDC_ARROW);wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(101));wc.hIconSm=wc.hIcon;wc.lpfnWndProc=MainProc;wc.lpszClassName=L"FreeIslandWin7.Main";wc.style=CS_HREDRAW|CS_VREDRAW;RegisterClassExW(&wc);wc.lpfnWndProc=OverlayProc;wc.lpszClassName=L"FreeIslandWin7.Overlay";wc.style=0;RegisterClassExW(&wc);wc.lpfnWndProc=StageProc;wc.lpszClassName=L"FreeIslandWin7.Stage";RegisterClassExW(&wc);if(!safe)engine->settings.startup=StartupEnabled();
  RECT work;SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);RECT desired=Rect(0,0,D(classroom?1280:1000),D(classroom?820:720));AdjustWindowRectEx(&desired,WS_OVERLAPPEDWINDOW,FALSE,0);int width=std::min(W(work),W(desired)),height=std::min(H(work),H(desired));main=CreateWindowExW(0,L"FreeIslandWin7.Main",L"浮岛 · Win7 原生版",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,work.left+(W(work)-width)/2,work.top+(H(work)-height)/2,width,height,NULL,NULL,instance,NULL);stage=CreateWindowExW(0,L"FreeIslandWin7.Stage",L"浮岛 Win7 · 课堂计时",WS_POPUP,0,0,900,600,NULL,NULL,instance,NULL);

@@ -18,7 +18,9 @@ internal static class LegacyBackdropTests
 {
     private static int checks;
     private static Window overlay;
+    private static uint fixtureProcess;
     [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr hwnd, IntPtr dc, uint flags);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint process);
     [DllImport("gdi32.dll")] private static extern bool PatBlt(IntPtr dc, int x, int y, int width, int height, uint operation);
     [DllImport("user32.dll")] private static extern bool GetWindowDisplayAffinity(IntPtr hwnd, out uint affinity);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out Rectangle rectangle);
@@ -48,6 +50,13 @@ internal static class LegacyBackdropTests
 
     private static void Check(bool value, string message)
     { if (!value) throw new InvalidOperationException(message); checks++; }
+    private static bool PaintFixtureWindow(IntPtr handle, IntPtr dc)
+    {
+        uint process;
+        GetWindowThreadProcessId(handle, out process);
+        // An unrelated window entering the fixture area must fail without reading it.
+        return process == fixtureProcess && PrintWindow(handle, dc, 2);
+    }
     private static void Pump(int milliseconds)
     {
         var frame = new DispatcherFrame();
@@ -98,8 +107,10 @@ internal static class LegacyBackdropTests
             fixture = Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName, "--fixture")
             { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden });
             IntPtr fixtureHandle = new IntPtr(Int64.Parse(fixture.StandardOutput.ReadLine()));
+            fixtureProcess = (uint)fixture.Id;
             var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             DesktopBackdrop.ForceLegacy = true;
+            DesktopBackdrop.LegacyPrintOverride = PaintFixtureWindow;
             ownUnderlay = new Window { WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Cyan,
                 Left = 200, Top = 200, Width = 180, Height = 160, Topmost = true, ShowInTaskbar = false };
             ownUnderlay.Show();
@@ -166,13 +177,13 @@ internal static class LegacyBackdropTests
             Check(!DesktopBackdrop.TryCapture(overlay, moved, out pending) && pending == null, "disabled capture returns no cache");
             // Inject only at the PrintWindow boundary to model APIs that return
             // success without pixels. Earlier assertions use the real native API.
-            DesktopBackdrop.LegacyPrintOverride = delegate(IntPtr handle, IntPtr dc) { return handle == fixtureHandle || PrintWindow(handle, dc, 2); };
+            DesktopBackdrop.LegacyPrintOverride = delegate(IntPtr handle, IntPtr dc) { return handle == fixtureHandle || PaintFixtureWindow(handle, dc); };
             DesktopBackdrop.SetEnabled(overlay, true); Pump(200);
             DesktopBackdrop.TryCapture(overlay, moved, out pending); Pump(150);
             Check(!DesktopBackdrop.TryCapture(overlay, moved, out pending) && pending == null, "unpainted source falls back without invented pixels");
             DesktopBackdrop.SetEnabled(overlay, false); Pump(150);
             DesktopBackdrop.LegacyPrintOverride = delegate(IntPtr handle, IntPtr dc)
-            { return handle == fixtureHandle ? PatBlt(dc, 0, 0, 400, 260, 0x42) : PrintWindow(handle, dc, 2); };
+            { return handle == fixtureHandle ? PatBlt(dc, 0, 0, 400, 260, 0x42) : PaintFixtureWindow(handle, dc); };
             DesktopBackdrop.SetEnabled(overlay, true);
             DesktopBackdrop.TryCapture(overlay, moved, out pending); Pump(150);
             Check(!DesktopBackdrop.TryCapture(overlay, moved, out pending) && pending == null, "successful black capture falls back without false refraction");
@@ -183,7 +194,7 @@ internal static class LegacyBackdropTests
             DesktopBackdrop.LegacyPrintOverride = delegate(IntPtr handle, IntPtr dc)
             {
                 if (handle == fixtureHandle && Interlocked.Exchange(ref delayOnce, 0) == 1) Thread.Sleep(750);
-                return PrintWindow(handle, dc, 2);
+                return PaintFixtureWindow(handle, dc);
             };
             DesktopBackdrop.SetEnabled(overlay, true);
             DesktopBackdrop.TryCapture(overlay, moved, out pending); Pump(100);

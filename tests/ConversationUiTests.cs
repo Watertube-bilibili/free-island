@@ -19,6 +19,7 @@ internal static class ConversationUiTests
 {
     private static int checks;
     private static int fixtureCalls;
+    private static bool darkFixture;
     private static string output;
     private static void Check(bool pass, string message) { if (!pass) throw new Exception(message); ++checks; }
     private static IEnumerable<T> All<T>(DependencyObject node) where T : DependencyObject
@@ -83,11 +84,31 @@ internal static class ConversationUiTests
         {
             bool blue = (((xx + x) / 88 + (yy + y) / 68) & 1) == 0;
             bool line = (xx + x) % 88 < 5 || (yy + y) % 68 < 5;
-            pixels[i] = (byte)(line ? 155 : blue ? 236 : 212);
-            pixels[i + 1] = (byte)(line ? 126 : blue ? 201 : 224);
-            pixels[i + 2] = (byte)(line ? 113 : blue ? 171 : 242); pixels[i + 3] = 255;
+            pixels[i] = (byte)(darkFixture ? (line ? 97 : blue ? 52 : 39) : (line ? 155 : blue ? 236 : 212));
+            pixels[i + 1] = (byte)(darkFixture ? (line ? 77 : blue ? 38 : 29) : (line ? 126 : blue ? 201 : 224));
+            pixels[i + 2] = (byte)(darkFixture ? (line ? 64 : blue ? 25 : 35) : (line ? 113 : blue ? 171 : 242)); pixels[i + 3] = 255;
         }
         return new BackdropFrame { Pixels = pixels, Width = w, Height = h, Stride = w * 4, ScreenBounds = new Rect(x, y, w, h) };
+    }
+    private static void VerifyConversationInk(AssistantChatView view, int mode, bool lightInk)
+    {
+        byte alpha = (byte)(lightInk ? 48 : 42);
+        Color tint = lightInk ? Color.FromArgb(alpha, 15, 22, 31) : Color.FromArgb(alpha, 248, 250, 252);
+        var input = Find<TextBox>(view, "ConversationInput");
+        Check(((SolidColorBrush)input.Background).Color == (mode == 0 ? Colors.White : tint), "Composer has only a faint local tint in glass modes and restores solid white with glass Off");
+        Check(((SolidColorBrush)input.Foreground).Color == (mode == 0 ? (Color)ColorConverter.ConvertFromString("#18243A") : lightInk ? Colors.White : (Color)ColorConverter.ConvertFromString("#132133")), "Composer ink adapts to bright/dark Water backgrounds and restores its Off color");
+        Check(((SolidColorBrush)input.CaretBrush).Color == (lightInk && mode != 0 ? Colors.White : (Color)ColorConverter.ConvertFromString("#4F66E8")), "Composer caret stays visible on either background and restores its Off color");
+        var localPanels = All<Border>(view).Where(b => (bool)b.GetValue(LiquidGlass.ClearPanelProperty)).ToList();
+        Check(localPanels.Count >= 5 && localPanels.All(b => b.Background is SolidColorBrush && (mode == 0 ? ((SolidColorBrush)b.Background).Color.A == 0 : ((SolidColorBrush)b.Background).Color == tint)), "Conversation readability backing remains local and faint without fogging the full glass surface");
+        Check(All<TextBlock>(view).All(t => t.Effect == null), "Conversation text has no blur or halo effect");
+        var secondary = All<Button>(view).Where(b => b.Name != "ConversationSend").ToList();
+        Check(secondary.Count > 0 && secondary.All(b => b.Background is SolidColorBrush && ((SolidColorBrush)b.Background).Color == (mode == 0 ? (Color)ColorConverter.ConvertFromString("#EEF1FF") : tint)), "Secondary controls retain faint resting tints in glass modes and their solid Off background");
+        Check(secondary.All(b => b.Foreground is SolidColorBrush && ((SolidColorBrush)b.Foreground).Color == (mode == 0 ? (Color)ColorConverter.ConvertFromString("#18243A") : lightInk ? Colors.White : (Color)ColorConverter.ConvertFromString("#132133"))), "Secondary control resting text adapts to dark Water backgrounds and restores its Off color");
+        Check(secondary.All(b => b.Template.Triggers.OfType<Trigger>().Where(t => t.Property == UIElement.IsMouseOverProperty && Equals(t.Value, true)).SelectMany(t => t.Setters.OfType<Setter>()).Any(s => s.Property == System.Windows.Documents.TextElement.ForegroundProperty && s.TargetName == "Surface" && s.Value is SolidColorBrush && ((SolidColorBrush)s.Value).Color == (Color)ColorConverter.ConvertFromString("#132133"))), "Secondary pale hover surface overrides inherited light ink within its template");
+        var skillNames = All<TextBox>(view).Where(t => t.Name == "ConversationSkillName").ToList();
+        Check(skillNames.Count > 0 && skillNames.All(t => t.Background is SolidColorBrush && ((SolidColorBrush)t.Background).Color == (mode == 0 ? (Color)ColorConverter.ConvertFromString("#EEF1FF") : tint) && t.Foreground is SolidColorBrush && ((SolidColorBrush)t.Foreground).Color == (mode == 0 ? (Color)ColorConverter.ConvertFromString("#18243A") : lightInk ? Colors.White : (Color)ColorConverter.ConvertFromString("#132133"))), "Skill name editor follows the same faint glass and adaptive text as the conversation controls");
+        var send = Find<Button>(view, "ConversationSend");
+        Check(((SolidColorBrush)send.Background).Color == (Color)ColorConverter.ConvertFromString("#4F66E8") && ((SolidColorBrush)send.Foreground).Color == Colors.White, "Primary send retains solid cobalt and white ink across material changes");
     }
     private static void VerifyConversationGlass(CoreEngine engine, AssistantController assistant, IslandWindow island, string prefix)
     {
@@ -96,33 +117,84 @@ internal static class ConversationUiTests
         island.ShowAssistant(view, 548, true); Pump();
         Find<TextBox>(view, "ConversationInput").Text = "为课堂练习准备五分钟，并给我一个音量滑块"; Await(view.SendAsync());
         var material = Find<LiquidGlassSurface>(island, "AssistantGlassMaterial");
-        foreach (int mode in new[] { 0, 1, 2 })
+        foreach (bool dark in new[] { false, true })
         {
-            engine.Settings.GlassMode = mode; LiquidGlass.Configure(engine.Settings); island.ApplyMaterial(); Pump(250);
-            Check(material.Mode == mode, "Conversation follows Off/Lite/Water preference");
-            Check(material.HasRefraction == (mode == 2), "Conversation refraction exists only in Water mode");
-            Check(material.IsUpdating == (mode == 2), "Off and Lite conversation materials do not run sampling timer");
-            if (mode != 2) { int prior = fixtureCalls; Pump(120); Check(prior == fixtureCalls, "Off/Lite conversation never samples backdrop"); }
-            var inputBrush = (SolidColorBrush)Find<TextBox>(view, "ConversationInput").Background;
-            Check(inputBrush.Color.A == (mode == 0 ? 255 : 0), "Composer is clear in glass modes and solid with glass Off");
-            var localPanels = All<Border>(view).Where(b => (bool)b.GetValue(LiquidGlass.ClearPanelProperty)).ToList();
-            Check(localPanels.Count >= 5 && localPanels.All(b => b.Background is SolidColorBrush && ((SolidColorBrush)b.Background).Color.A == 0), "Conversation title, context, replies and footer have no fogging text backing");
-            Check(All<TextBlock>(view).All(t => t.Effect == null), "Conversation text has no blur or halo effect");
-            Check(All<Button>(view).Where(b => b.Name != "ConversationSend").All(b => b.Background is SolidColorBrush && ((SolidColorBrush)b.Background).Color.A == (mode == 0 ? 255 : 0)), "Secondary controls keep clear resting surfaces only in glass modes");
-            if (mode == 2)
+            darkFixture = dark;
+            foreach (int mode in new[] { 0, 1, 2 })
             {
-                var image = (WriteableBitmap)typeof(LiquidGlassSurface).GetField("image", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(material);
-                double physicalHeight = material.PointToScreen(new Point(0, material.ActualHeight)).Y - material.PointToScreen(new Point()).Y;
-                Check(material.HighDetailRefraction && image.PixelHeight >= Math.Min(1024, physicalHeight) - 1 && image.PixelHeight <= 1024 && image.PixelWidth <= 1024, "Interactive Water retains bounded physical detail instead of stretching a 180px capture");
+                engine.Settings.GlassMode = mode; LiquidGlass.Configure(engine.Settings); island.ApplyMaterial(); Pump(mode == 2 ? 650 : 250);
+                Check(material.Mode == mode, "Conversation follows Off/Lite/Water preference");
+                Check(material.HasRefraction == (mode == 2), "Conversation refraction exists only in Water mode");
+                Check(material.IsUpdating == (mode == 2), "Off and Lite conversation materials do not run sampling timer");
+                if (mode != 2) { int prior = fixtureCalls; Pump(120); Check(prior == fixtureCalls, "Off/Lite conversation never samples backdrop"); }
+                VerifyConversationInk(view, mode, dark && mode == 2);
+                if (mode == 2)
+                {
+                    var image = (WriteableBitmap)typeof(LiquidGlassSurface).GetField("image", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(material);
+                    double physicalHeight = material.PointToScreen(new Point(0, material.ActualHeight)).Y - material.PointToScreen(new Point()).Y;
+                    Check(material.HighDetailRefraction && image.PixelHeight >= Math.Min(1024, physicalHeight) - 1 && image.PixelHeight <= 1024 && image.PixelWidth <= 1024, "Interactive Water retains bounded physical detail instead of stretching a 180px capture");
+                    var timer = (DispatcherTimer)typeof(LiquidGlassSurface).GetField("timer", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(material);
+                    Check(timer.Interval == TimeSpan.FromMilliseconds(50), "Visible resting Water uses the faster 50 ms sampling schedule");
+                    material.Pressed = true; Pump();
+                    Check(timer.Interval == TimeSpan.FromMilliseconds(16), "Pressed Water uses the 16 ms interaction schedule");
+                    material.Pressed = false; Pump();
+                    Check(timer.Interval == TimeSpan.FromMilliseconds(50), "Released Water restores the bounded 50 ms resting schedule");
+                }
             }
+            var slider = Find<Slider>(view, "ConversationVolume"); slider.Value = 73; Pump();
+            var scroll = All<ScrollViewer>(view).Single(s => AutomationProperties.GetName(s) == "对话记录");
+            var reply = All<TextBlock>(view).Single(t => t.Text == responder.Reply.Text);
+            scroll.ScrollToVerticalOffset(Math.Max(0, reply.TranslatePoint(new Point(), (UIElement)scroll.Content).Y - 4)); Pump(); InWorkArea(island);
+            Capture(island, prefix + "-conversation-water-" + (dark ? "dark-" : "") + "fixture");
         }
         Check(fixtureCalls > 0 && LiquidGlassSurface.PreviewBackdrop != null, "Water samples deterministic in-memory fixture only");
-        var slider = Find<Slider>(view, "ConversationVolume"); slider.Value = 73; Pump();
-        All<ScrollViewer>(view).Single(s => AutomationProperties.GetName(s) == "对话记录").ScrollToEnd(); Pump(); InWorkArea(island);
-        Capture(island, prefix + "-conversation-water-fixture");
+        engine.Settings.GlassMode = 0; LiquidGlass.Configure(engine.Settings); island.ApplyMaterial(); Pump();
+        VerifyConversationInk(view, 0, false);
+        engine.Settings.GlassMode = 2; LiquidGlass.Configure(engine.Settings); island.ApplyMaterial(); Pump(650);
         island.Hide(); Pump(100);
         Check(!material.IsUpdating && !material.HasRefraction, "Hidden Water conversation releases timer and refraction buffer");
         int stoppedCalls = fixtureCalls; Pump(180); Check(fixtureCalls == stoppedCalls, "Hidden conversation stops backdrop sampling completely");
+        darkFixture = false;
+    }
+    private static void VerifyConversationSkills(CoreEngine engine, AssistantController assistant, IslandWindow island, string prefix)
+    {
+        var responder = new Responder(); var history = new List<LocalAiTurn>(); string navigation = null;
+        var view = new AssistantChatView(assistant, engine, island, delegate(string page) { navigation = page; }, history, responder.Respond);
+        island.ShowAssistant(view, 548, true); Pump();
+        Check(assistant.Skills.List().Count == 0, "Isolated UI scene starts with an empty local skill library");
+        Find<TextBox>(view, "ConversationInput").Text = "创建课堂练习技能，包含五分钟计时、音量和播放控制"; Await(view.SendAsync());
+        var name = All<TextBox>(view).Last(t => t.Name == "ConversationSkillName");
+        var save = All<Button>(view).Last(b => b.Name == "ConversationSaveSkill");
+        Check(name.MaxLength == 24 && name.MinHeight >= 44 && save.MinHeight >= 44, "Skill naming and saving retain bounded text and usable touch targets");
+        name.Text = "课堂练习"; Click(save);
+        var stored = assistant.Skills.List();
+        Check(stored.Count == 1 && stored[0].Name == "课堂练习" && stored[0].Actions.Count == 3 && stored[0].Actions[0].Kind == "countdown" && stored[0].Actions[0].Seconds == 300 && stored[0].Actions[1].Kind == "volume" && stored[0].Actions[2].Kind == "media_toggle", "Save skill preserves the generated bounded actions and chosen name");
+        Check(!engine.CountdownActive && !engine.ShutdownAt.HasValue && navigation == null && !assistant.Service.IsRunning, "Saving a skill does not execute any action or start a real model");
+        Check(!save.IsEnabled && (save.Content as string) == "已保存" && name.IsReadOnly, "Saved skill displays confirmation and prevents accidental duplicate saves");
+        Click(Find<Button>(view, "ConversationSkills"));
+        Check(All<Button>(view).Any(b => AutomationProperties.GetName(b) == "展开技能：课堂练习") && All<Button>(view).Any(b => AutomationProperties.GetName(b) == "移除技能：课堂练习"), "Library exposes explicit preview and removal controls for the saved skill");
+        InWorkArea(island); Capture(island, prefix + "-conversation-skill-library");
+
+        island.Hide(); Pump();
+        view = new AssistantChatView(assistant, engine, island, delegate(string page) { navigation = page; }, history, responder.Respond);
+        island.ShowAssistant(view, 548, true); Pump(); Click(Find<Button>(view, "ConversationSkills"));
+        Check(assistant.Skills.List().Count == 1 && All<Button>(view).Any(b => AutomationProperties.GetName(b) == "展开技能：课堂练习"), "Saved skill remains available after closing and reopening the conversation");
+        Click(All<Button>(view).Single(b => AutomationProperties.GetName(b) == "展开技能：课堂练习"));
+        Check(Find<TextBlock>(view, "ConversationState").Text == "技能已展开 · 尚未执行" && !engine.CountdownActive && !engine.ShutdownAt.HasValue && navigation == null, "Previewing a saved skill presents its actions without executing them");
+        Check(Find<Slider>(view, "ConversationVolume").IsEnabled && All<Button>(view).Any(b => (b.Content as string) == "系统播放 / 暂停") && !All<Button>(view).Any(b => b.Name == "ConversationSaveSkill"), "Saved skill preview restores its controls without offering another duplicate save");
+        InWorkArea(island); Capture(island, prefix + "-conversation-skill-preview");
+        Click(All<Button>(view).Single(b => (b.Content as string) == "确认开始 0:05:00 倒计时"));
+        Check(engine.CountdownActive && engine.CountdownRemaining.TotalMinutes > 4 && engine.CountdownRemaining.TotalMinutes <= 5, "Explicit confirmation from saved skill starts its bounded countdown"); engine.CancelCountdown();
+        Click(Find<Button>(view, "ConversationSkills"));
+        Click(All<Button>(view).Single(b => AutomationProperties.GetName(b) == "移除技能：课堂练习"));
+        Check(assistant.Skills.List().Count == 0 && !All<Button>(view).Any(b => AutomationProperties.GetName(b) == "展开技能：课堂练习") && Find<TextBlock>(view, "ConversationState").Text == "已从本地技能库移除", "Explicit library removal deletes the saved skill and updates its visible state");
+
+        responder.Pending = new TaskCompletionSource<LocalAiReply>();
+        Find<TextBox>(view, "ConversationInput").Text = "等待技能回答"; Task pending = view.SendAsync();
+        Check(!pending.IsCompleted && !Find<Button>(view, "ConversationSkills").IsEnabled, "Pending model reply disables library navigation");
+        responder.Pending.SetResult(new LocalAiReply { Text = "完成。", Actions = new List<LocalAiAction>() }); Await(pending);
+        Check(Find<Button>(view, "ConversationSkills").IsEnabled && !engine.CountdownActive && !engine.ShutdownAt.HasValue && !assistant.Service.IsRunning, "Completed reply restores skill navigation while leaving real model and system actions idle");
+        view.CancelRequest(); island.Hide(); Pump();
     }
     private static void Click(Button button) { Check(button != null && button.IsEnabled, "Clickable safe UI action"); button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(); }
     private static void InWorkArea(Window window)
@@ -253,13 +325,14 @@ internal static class ConversationUiTests
                 Check(noticeHistory.Count == 0 && !engine.ShutdownAt.HasValue, "Canceled response stores no history and never schedules shutdown");
                 Check(!assistant.Service.IsRunning && !assistant.Service.IsBusy, "All UI checks leave real local model stopped");
                 VerifyConversationGlass(engine, assistant, island, prefix);
+                VerifyConversationSkills(engine, assistant, island, prefix);
             }
             finally { view.CancelRequest(); island.Close(); panel.AllowClose = true; panel.Close(); }
         }
     }
     [STAThread] private static int Main(string[] args)
     {
-        output = Path.GetFullPath(args.Length > 0 ? args[0] : "artifacts/conversation-ui-1.0.11"); Directory.CreateDirectory(output);
+        output = Path.GetFullPath(args.Length > 0 ? args[0] : "artifacts/conversation-ui-1.0.12"); Directory.CreateDirectory(output);
         try
         {
             new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown }; SurfaceStyle.SnapshotMode = true; LiquidGlassSurface.PreviewBackdrop = SyntheticBackdrop;

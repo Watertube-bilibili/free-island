@@ -12,7 +12,7 @@ using System.Windows.Threading;
 
 namespace FreeIsland
 {
-    internal sealed class AssistantChatView : Grid
+    internal sealed class AssistantChatView : Grid, IClearGlassContent
     {
         private readonly AssistantController assistant;
         private readonly CoreEngine engine;
@@ -47,11 +47,11 @@ namespace FreeIsland
             AutomationProperties.SetName(close, "收起岛上对话"); DockPanel.SetDock(close, Dock.Right); header.Children.Add(close);
             flow = new AssistantFlow { Width = 38, Height = 28, Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
             DockPanel.SetDock(flow, Dock.Left); header.Children.Add(flow);
-            var title = Copy("问浮岛", 21, "#18243A"); title.FontWeight = FontWeights.SemiBold; header.Children.Add(title); Add(Readable(header), 0);
+            var title = Copy("问浮岛", 21, "#18243A"); title.FontWeight = FontWeights.SemiBold; header.Children.Add(Readable(title)); Add(header, 0);
 
             string description = assistant.LastContext == null ? "先切换到应用，再从悬浮球呼出我。" : assistant.LastContext.Description;
             var context = Copy(description, 12, "#58657A"); context.Name = "ConversationContext"; context.MaxHeight = 40; context.TextTrimming = TextTrimming.CharacterEllipsis;
-            context.ToolTip = description; context.Margin = new Thickness(0, 0, 0, 10); Add(Readable(context), 1);
+            context.ToolTip = description; var contextBacking = Readable(context); contextBacking.Margin = new Thickness(0, 0, 0, 10); Add(contextBacking, 1);
 
             conversation = new ScrollViewer { Content = messages, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, PanningMode = PanningMode.VerticalOnly, Margin = new Thickness(0, 0, 0, 8) };
             AutomationProperties.SetName(conversation, "对话记录"); Add(conversation, 2);
@@ -91,7 +91,7 @@ namespace FreeIsland
             settings.FontSize = 12; settings.Padding = new Thickness(1, 0, 1, 0); settings.MinHeight = 44; DockPanel.SetDock(settings, Dock.Right); footer.Children.Add(settings);
             var clear = Button("清空", delegate { if (pending != null) StopResponse(); history.Clear(); messages.Children.Clear(); Message("新对话。想先做什么？", false); });
             clear.FontSize = 12; clear.Padding = new Thickness(0); clear.MinHeight = 44; DockPanel.SetDock(clear, Dock.Right); footer.Children.Add(clear);
-            state = Copy("本机对话 · 操作需确认", 11, "#58657A"); state.Name = "ConversationState"; footer.Children.Add(state); Add(Readable(footer), 5);
+            state = Copy("本机对话 · 操作需确认", 11, "#58657A"); state.Name = "ConversationState"; footer.Children.Add(Readable(state)); Add(footer, 5);
             Unloaded += delegate { CancelRequest(); };
             IsVisibleChanged += delegate { if (!IsVisible) CancelRequest(); };
             Loaded += delegate { island.ResizeAssistant(history.Count == 0 ? 408 : 548); };
@@ -101,19 +101,32 @@ namespace FreeIsland
         private static TextBlock Copy(string value, double size, string color) { var t = SurfaceStyle.Text(value, size, color); t.TextAlignment = TextAlignment.Left; t.TextWrapping = TextWrapping.Wrap; return t; }
         private static Border Readable(UIElement child)
         {
-            var panel = new Border { Child = child, CornerRadius = new CornerRadius(10), Padding = new Thickness(5, 2, 5, 2) };
-            panel.SetValue(LiquidGlass.ReadablePanelProperty, true); return panel;
+            // Conversation explicitly favors clear glass over text backing.
+            var panel = new Border { Child = child, CornerRadius = new CornerRadius(10), Padding = new Thickness(5, 2, 5, 2), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+            panel.SetValue(LiquidGlass.ReadablePanelProperty, true); panel.SetValue(LiquidGlass.ClearPanelProperty, true); return panel;
         }
         private static Button Button(string label, Action action) { var b = SurfaceStyle.Button(label, action, "#EEF1FF"); b.MinHeight = 44; AutomationProperties.SetName(b, label); return b; }
+        public void ApplyMaterial(int mode)
+        {
+            bool clear = mode != 0 && !SystemParameters.HighContrast;
+            input.Background = clear ? Brushes.Transparent : SystemParameters.HighContrast ? SystemColors.WindowBrush : Brushes.White;
+            ApplySecondaryMaterial(this, clear ? Brushes.Transparent : SystemParameters.HighContrast ? SystemColors.WindowBrush : SurfaceStyle.Brush("#EEF1FF"));
+        }
+        private static void ApplySecondaryMaterial(DependencyObject host, Brush background)
+        {
+            var button = host as Button;
+            if (button != null) { if (button.Name != "ConversationSend") button.Background = background; return; }
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(host); i++) ApplySecondaryMaterial(VisualTreeHelper.GetChild(host, i), background);
+        }
         private void Message(string value, bool user)
         {
-            var text = Copy(value ?? "", textSize, "#18243A"); text.Margin = new Thickness(0, 0, 0, 12);
+            var text = Copy(value ?? "", textSize, "#18243A");
             if (user)
             {
                 text.Margin = new Thickness(0);
                 var bubble = Readable(text); bubble.Background = SurfaceStyle.Brush("#E6EBFF"); bubble.Padding = new Thickness(10, 8, 10, 8); bubble.Margin = new Thickness(28, 3, 0, 14); bubble.HorizontalAlignment = HorizontalAlignment.Right; bubble.MaxWidth = 310; messages.Children.Add(bubble);
             }
-            else { var reply = Readable(text); reply.Margin = new Thickness(0, 0, 12, 8); messages.Children.Add(reply); }
+            else { var reply = Readable(text); reply.Margin = new Thickness(0, 0, 12, 20); messages.Children.Add(reply); }
             while (messages.Children.Count > 32) messages.Children.RemoveAt(0);
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(island.RefreshAssistantInk));
         }

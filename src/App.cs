@@ -121,7 +121,7 @@ namespace FreeIsland
             alertAudio = new AlertAudioService(dataPath, safe);
             island.NoticeAcknowledged += delegate { alertAudio.Stop(); };
             assistant = new AssistantController(dataPath, safe, engine, delegate { return !ending && !panel.IsVisible && !presentation.IsVisible && !island.IsVisible && !radial.IsVisible; });
-            assistant.Suggested += delegate(AssistantSuggestion suggestion) { if (!ending) AssistantIsland.Present(island, engine, suggestion, OpenPanel); };
+            assistant.Suggested += delegate(AssistantSuggestion suggestion) { if (!ending) AssistantIsland.Present(island, engine, suggestion, OpenPanel, assistant.SnoozeSuggestionsForOneHour); };
             updater = new UpdateService(engine, delegate { return panel != null && panel.IsVisible || presentation != null && presentation.IsVisible || island != null && island.IsVisible || radial != null && radial.IsVisible || assistant.Service.IsBusy; }, ExitApp);
             panel = new ControlWindow(engine, PreviewIsland, delegate { ball.RestorePosition(); }, OpenPresentation, updater, assistant, alertAudio);
             panel.ChatRequested += OpenChat;

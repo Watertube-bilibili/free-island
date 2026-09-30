@@ -17,6 +17,7 @@ namespace FreeIsland
         [DataMember] public bool IncludeWindowTitle;
         [DataMember] public string SelectedModelId;
         [DataMember] public string ModelDirectory;
+        [DataMember] public long SuggestionsSnoozedUntilUtcTicks;
     }
 
     public sealed class AssistantSuggestion
@@ -51,6 +52,10 @@ namespace FreeIsland
         public string LastError { get; private set; }
         public AssistantContextSnapshot LastContext { get; private set; }
         public bool IsChatting { get { return chatting; } }
+        public DateTime SuggestionsSnoozedUntilUtc
+        {
+            get { long ticks = Preferences.SuggestionsSnoozedUntilUtcTicks; return ticks > 0 && ticks <= DateTime.MaxValue.Ticks ? new DateTime(ticks, DateTimeKind.Utc) : DateTime.MinValue; }
+        }
         public event Action<AssistantSuggestion> Suggested;
 
         public AssistantController(string directory, bool safeMode, CoreEngine engine, Func<bool> canPresent)
@@ -114,6 +119,19 @@ namespace FreeIsland
             operationVersion++; CancelRequests(); Preferences.Enabled = false; Save(); Service.CancelInstall(); Service.Stop();
         }
         public void CancelInstall() { operationVersion++; CancelRequests(); Service.CancelInstall(); }
+
+        public void SnoozeSuggestionsForOneHour() { SnoozeSuggestionsForOneHour(DateTime.UtcNow); }
+        internal void SnoozeSuggestionsForOneHour(DateTime nowUtc)
+        {
+            if (disposed) throw new ObjectDisposedException("AssistantController");
+            long previous = Preferences.SuggestionsSnoozedUntilUtcTicks;
+            Preferences.SuggestionsSnoozedUntilUtcTicks = nowUtc.AddHours(1).Ticks;
+            try { Save(); }
+            catch { Preferences.SuggestionsSnoozedUntilUtcTicks = previous; throw; }
+            // A temporary suggestion pause must not cancel a manually started conversation.
+            CancelRequest(suggestionRequest);
+            contextGate.Observe("", nowUtc);
+        }
 
         public Task InstallAndEnableAsync() { return ActivateAsync(true); }
         public Task EnableAsync() { return ActivateAsync(false); }
@@ -308,14 +326,14 @@ namespace FreeIsland
 
         public async void Poll()
         {
-            if (disposed || safe || polling || chatting || changingDirectory || (!Preferences.Enabled && !Preferences.RuleShortcutsEnabled)) return;
+            if (disposed || safe || polling || chatting || changingDirectory || DateTime.UtcNow < SuggestionsSnoozedUntilUtc || (!Preferences.Enabled && !Preferences.RuleShortcutsEnabled)) return;
             AssistantContextSnapshot snapshot = AssistantContext.Capture(Preferences.IncludeWindowTitle);
             var now = DateTime.UtcNow;
-            contextGate.Observe(snapshot.Fingerprint, now);
+            contextGate.Observe(snapshot.IsFullScreen ? "" : snapshot.Fingerprint, now);
             if (snapshot.ProcessName.Length == 0) return;
             LastContext = snapshot;
             if (!canPresent() || (engine.ShutdownRemaining.HasValue && engine.ShutdownRemaining.Value.TotalSeconds <= 30) || Service.IsBusy) return;
-            if (!contextGate.TryBegin(snapshot.Fingerprint, now)) return;
+            if (!contextGate.TryBegin(snapshot, now, SuggestionsSnoozedUntilUtc)) return;
             polling = true; int version = operationVersion;
             bool includeTitle = Preferences.IncludeWindowTitle;
             bool entered = false;
@@ -344,14 +362,14 @@ namespace FreeIsland
                 sourceToken.Token.ThrowIfCancellationRequested();
                 if (disposed || chatting || version != operationVersion || includeTitle != Preferences.IncludeWindowTitle || (!Preferences.Enabled && !Preferences.RuleShortcutsEnabled) || !canPresent() || (engine.ShutdownRemaining.HasValue && engine.ShutdownRemaining.Value.TotalSeconds <= 30)) return;
                 AssistantContextSnapshot current = AssistantContext.Capture(Preferences.IncludeWindowTitle);
-                if (current.Fingerprint != snapshot.Fingerprint) return;
+                if (current.Fingerprint != snapshot.Fingerprint || !contextGate.CanPresent(current, DateTime.UtcNow, SuggestionsSnoozedUntilUtc)) return;
                 if (actions != null && actions.Count > 0)
                 {
                     var handler = Suggested;
                     if (handler != null)
                     {
                         handler(new AssistantSuggestion { ProcessName = snapshot.ProcessName, ContextDescription = snapshot.Description, Source = source, Actions = actions });
-                        contextGate.MarkPresented(snapshot.Fingerprint, DateTime.UtcNow);
+                        contextGate.MarkPresented(snapshot.ProcessName, DateTime.UtcNow);
                     }
                 }
             }

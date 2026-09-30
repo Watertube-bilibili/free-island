@@ -12,6 +12,7 @@ using System.Windows.Threading;
 
 namespace FreeIsland
 {
+    internal interface IClearGlassContent { void ApplyMaterial(int mode); }
     /// <summary>A clear convex water lens; only the material deforms, never its labels.</summary>
     public sealed class LiquidGlassSurface : FrameworkElement
     {
@@ -25,6 +26,7 @@ namespace FreeIsland
         public double Radius { get { return (double)GetValue(RadiusProperty); } set { SetValue(RadiusProperty, value); } }
         public bool Pressed { get { return (bool)GetValue(PressedProperty); } set { SetValue(PressedProperty, value); } }
         public bool Compact { get { return (bool)GetValue(CompactProperty); } set { SetValue(CompactProperty, value); } }
+        public bool HighDetailRefraction { get; set; }
         private readonly DispatcherTimer timer;
         private readonly WaterSpring pressure = new WaterSpring(), pullX = new WaterSpring(), pullY = new WaterSpring();
         private Window captureWindow;
@@ -170,10 +172,16 @@ namespace FreeIsland
         private void RenderLens()
         {
             if (backdrop == null || ActualWidth <= 0 || ActualHeight <= 0 || !Compact && (ActualWidth < 2 || ActualHeight < 2)) return;
-            // Logical-resolution optics keeps large touch displays inexpensive. WPF
-            // scales this material; the labels remain native vector text at full DPI.
+            // Compact surfaces keep the inexpensive budget. Tall chat surfaces use
+            // physical-pixel detail instead of stretching a 180-pixel image vertically.
             double scale = Compact ? Math.Max(4, 16 / Math.Min(ActualWidth, ActualHeight)) : Math.Min(1.5, Math.Min(640 / ActualWidth, 180 / ActualHeight));
+            if (HighDetailRefraction && !Compact)
+            {
+                double physicalScale = Math.Max(screenBounds.Width / ActualWidth, screenBounds.Height / ActualHeight);
+                scale = Math.Min(Math.Max(1, physicalScale), Math.Min(1024 / ActualWidth, 1024 / ActualHeight));
+            }
             int w = Math.Max(2, (int)Math.Ceiling(ActualWidth * scale)), h = Math.Max(2, (int)Math.Ceiling(ActualHeight * scale));
+            if (HighDetailRefraction && !Compact) { w = Math.Min(1024, w); h = Math.Min(1024, h); }
             if (lens == null || lens.Width != w || lens.Height != h)
             {
                 lens = new WaterLens(w, h); image = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
@@ -257,6 +265,7 @@ namespace FreeIsland
             foreach (var surface in new List<LiquidGlassSurface>(Surfaces)) surface.SettingsChanged();
         }
         internal static readonly DependencyProperty ReadablePanelProperty = DependencyProperty.RegisterAttached("ReadablePanel", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
+        internal static readonly DependencyProperty ClearPanelProperty = DependencyProperty.RegisterAttached("ClearPanel", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
         private static readonly DependencyProperty PointerWiredProperty = DependencyProperty.RegisterAttached("PointerWired", typeof(bool), typeof(LiquidGlass), new PropertyMetadata(false));
         private static readonly DependencyProperty OriginalInkProperty = DependencyProperty.RegisterAttached("OriginalInk", typeof(Brush), typeof(LiquidGlass));
         private static readonly Dictionary<Window, HashSet<LiquidGlassSurface>> Windows = new Dictionary<Window, HashSet<LiquidGlassSurface>>();
@@ -279,13 +288,15 @@ namespace FreeIsland
         { InkCore(host, mode, light, false); }
         private static void InkCore(DependencyObject host, int mode, bool light, bool readable)
         {
+            var clearContent = host as IClearGlassContent;
+            if (clearContent != null) { readable = true; clearContent.ApplyMaterial(mode); }
             // Local counter-colour halos protect labels on mixed slides without
             // inserting an opaque card inside the water surface.
             var panel = host as Border;
             if (panel != null && (bool)panel.GetValue(ReadablePanelProperty))
             {
                 readable = true;
-                panel.Background = mode == 0 ? Brushes.Transparent : SystemParameters.HighContrast ? SystemColors.WindowBrush :
+                panel.Background = SystemParameters.HighContrast ? SystemColors.WindowBrush : mode == 0 || (bool)panel.GetValue(ClearPanelProperty) ? Brushes.Transparent :
                     new SolidColorBrush(light ? Color.FromArgb(205, 15, 22, 31) : Color.FromArgb(228, 248, 250, 252));
             }
             var text = host as TextBlock; var shape = host as Shape;

@@ -554,7 +554,7 @@ namespace FreeIsland
             if (engine.ShutdownRemaining.HasValue && engine.ShutdownRemaining.Value.TotalSeconds <= 30) return;
             ClearAssistant(); tasksMode = true; noticeVisible = false; card.Visibility = Visibility.Collapsed; activity = "";
             assistantInteractive = interactive; ShowActivated = interactive;
-            var glass = new LiquidGlassSurface { Mode = engine.Settings.GlassMode, Radius = 28, Name = "AssistantGlassMaterial" }; assistantMaterial = glass;
+            var glass = new LiquidGlassSurface { Mode = engine.Settings.GlassMode, Radius = 28, HighDetailRefraction = interactive, Name = "AssistantGlassMaterial" }; assistantMaterial = glass;
             var layers = new Grid(); layers.Children.Add(glass);
             var backing = new Border { Child = body, Margin = new Thickness(16), Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(14) };
             backing.SetValue(LiquidGlass.ReadablePanelProperty, !interactive); layers.Children.Add(backing);

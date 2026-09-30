@@ -190,34 +190,40 @@ namespace FreeIsland
     internal sealed class AssistantContextGate
     {
         private string current = "";
-        private DateTime since, lastRequest = DateTime.MinValue;
-        private readonly Dictionary<string, DateTime> presented = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        private DateTime since, lastRequest = DateTime.MinValue, lastPresented = DateTime.MinValue;
+        private readonly Dictionary<string, DateTime> presented = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
 
         internal void Observe(string fingerprint, DateTime now)
         {
             fingerprint = fingerprint ?? "";
             if (current != fingerprint || now < since) { current = fingerprint; since = now; }
         }
-        internal bool TryBegin(string fingerprint, DateTime now)
+        internal bool CanPresent(AssistantContextSnapshot snapshot, DateTime now, DateTime snoozedUntil)
         {
-            Observe(fingerprint, now);
-            if (current.Length == 0 || now - since < TimeSpan.FromSeconds(3) || now - lastRequest < TimeSpan.FromSeconds(8)) return false;
+            if (snapshot == null || snapshot.ProcessName.Length == 0 || snapshot.IsFullScreen || now < snoozedUntil || now - lastPresented < TimeSpan.FromMinutes(10)) return false;
             DateTime previous;
-            if (presented.TryGetValue(fingerprint, out previous) && now - previous < TimeSpan.FromMinutes(2)) return false;
+            // Browser titles and fullscreen transitions must not bypass the app cooldown.
+            return !presented.TryGetValue(snapshot.ProcessName, out previous) || now - previous >= TimeSpan.FromMinutes(30);
+        }
+        internal bool TryBegin(AssistantContextSnapshot snapshot, DateTime now, DateTime snoozedUntil)
+        {
+            Observe(snapshot == null || snapshot.IsFullScreen ? "" : snapshot.Fingerprint, now);
+            if (!CanPresent(snapshot, now, snoozedUntil) || current.Length == 0 || now - since < TimeSpan.FromSeconds(15) || now - lastRequest < TimeSpan.FromMinutes(1)) return false;
             lastRequest = now;
             return true;
         }
-        internal void MarkPresented(string fingerprint, DateTime now)
+        internal void MarkPresented(string processName, DateTime now)
         {
-            if (string.IsNullOrEmpty(fingerprint)) return;
+            if (string.IsNullOrEmpty(processName)) return;
+            lastPresented = now;
             if (presented.Count >= 256)
             {
                 var old = new List<string>();
-                foreach (var pair in presented) if (now - pair.Value >= TimeSpan.FromMinutes(2)) old.Add(pair.Key);
+                foreach (var pair in presented) if (now - pair.Value >= TimeSpan.FromMinutes(30)) old.Add(pair.Key);
                 foreach (string key in old) presented.Remove(key);
                 if (presented.Count >= 256) presented.Clear();
             }
-            presented[fingerprint] = now;
+            presented[processName] = now;
         }
     }
 }

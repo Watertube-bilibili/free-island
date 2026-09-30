@@ -8,7 +8,7 @@ namespace FreeIsland
 {
     internal static class AssistantIsland
     {
-        public static void Present(IslandWindow island, CoreEngine engine, AssistantSuggestion suggestion, Action<string> navigate)
+        public static void Present(IslandWindow island, CoreEngine engine, AssistantSuggestion suggestion, Action<string> navigate, Action snooze = null)
         {
             if (suggestion == null || suggestion.Actions == null || suggestion.Actions.Count == 0) return;
             var body = new StackPanel();
@@ -64,7 +64,19 @@ namespace FreeIsland
                     System.Windows.Automation.AutomationProperties.SetName(button, actualAction); body.Children.Add(button); rowHeight += button.MinHeight + 5;
                 }
             }
-            island.ShowAssistant(body, 106 + rowHeight);
+            if (snooze != null)
+            {
+                var pause = SurfaceStyle.Button("1 小时内不再建议", delegate
+                {
+                    try { snooze(); island.DismissAssistant(); island.Collapse(); }
+                    catch (Exception) { status.Text = "暂停未保存，请重试。"; }
+                }, "#EEF1FF");
+                pause.Name = "SnoozeAssistantSuggestions"; pause.MinHeight = 44;
+                pause.Margin = new Thickness(0, 10, 0, 0); pause.HorizontalAlignment = HorizontalAlignment.Stretch;
+                System.Windows.Automation.AutomationProperties.SetName(pause, "1 小时内不再建议");
+                body.Children.Add(pause); rowHeight += 54;
+            }
+            island.ShowAssistant(body, 118 + rowHeight);
         }
     }
 }

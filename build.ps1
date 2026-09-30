@@ -75,21 +75,29 @@ if (-not $SkipTests -and (Test-Path -LiteralPath $coreTestSource)) {
     & $conversationTestExecutable
     if ($LASTEXITCODE -ne 0) { throw "Local conversation fixture tests failed: $LASTEXITCODE" }
     $contextSources = @((Join-Path $projectRoot 'src\AssistantContext.cs'), (Join-Path $projectRoot 'src\AssistantKnowledge.cs'))
+    $skillTestExecutable = Join-Path $buildDirectory 'LocalAiSkillTests.exe'
+    Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:exe', '/optimize+', "/out:$skillTestExecutable") + $referenceArguments + $aiSources + @((Join-Path $projectRoot 'tests\LocalAiSkillTests.cs')))
+    & $skillTestExecutable
+    if ($LASTEXITCODE -ne 0) { throw "Local skill fixture tests failed: $LASTEXITCODE" }
     $contextTestExecutable = Join-Path $buildDirectory 'AssistantContextTests.exe'
     Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:exe', '/optimize+', "/out:$contextTestExecutable") + $referenceArguments + $contextSources + @((Join-Path $projectRoot 'tests\AssistantContextTests.cs')))
     & $contextTestExecutable
     if ($LASTEXITCODE -ne 0) { throw "Assistant context fixture tests failed: $LASTEXITCODE" }
     $storageTestExecutable = Join-Path $buildDirectory 'AssistantStoragePreferencesTests.exe'
+    $mediaTestExecutable = Join-Path $buildDirectory 'AssistantMediaSuggestionTests.exe'
+    Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:exe', '/optimize+', "/out:$mediaTestExecutable") + $referenceArguments + $aiSources + $contextSources + @((Join-Path $projectRoot 'src\Core.cs'), (Join-Path $projectRoot 'src\AssistantController.cs'), (Join-Path $projectRoot 'tests\AssistantMediaSuggestionTests.cs')))
+    & $mediaTestExecutable
+    if ($LASTEXITCODE -ne 0) { throw "Automatic media fixture tests failed: $LASTEXITCODE" }
     Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:exe', '/optimize+', "/out:$storageTestExecutable") + $referenceArguments + $aiSources + $contextSources + @((Join-Path $projectRoot 'src\Core.cs'), (Join-Path $projectRoot 'src\AssistantController.cs'), (Join-Path $projectRoot 'tests\AssistantStoragePreferencesTests.cs')))
     & $storageTestExecutable (Join-Path $buildDirectory ('model-path-fixture-' + [Guid]::NewGuid().ToString('N')))
     if ($LASTEXITCODE -ne 0) { throw "Model directory fixture tests failed: $LASTEXITCODE" }
     $updateTestExecutable = Join-Path $buildDirectory 'UpdateTests.exe'
     Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:exe', '/optimize+', "/out:$updateTestExecutable") + $referenceArguments + @((Join-Path $projectRoot 'src\Core.cs'), (Join-Path $projectRoot 'src\UpdateService.cs'), (Join-Path $projectRoot 'tests\UpdateTests.cs')))
-    & $updateTestExecutable (Join-Path $projectRoot 'artifacts\update-tests-build-1.0.11')
+    & $updateTestExecutable (Join-Path $projectRoot 'artifacts\update-tests-build-1.0.12')
     if ($LASTEXITCODE -ne 0) { throw "Automatic update fixture tests failed: $LASTEXITCODE" }
     $recurringTestExecutable = Join-Path $buildDirectory 'RecurringUpdateIntegrationTests.exe'
     Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:exe', '/define:FI_CORE_TESTING', '/optimize+', "/out:$recurringTestExecutable") + $referenceArguments + @((Join-Path $projectRoot 'src\Core.cs'), (Join-Path $projectRoot 'src\UpdateService.cs'), (Join-Path $projectRoot 'tests\RecurringUpdateIntegrationTests.cs')))
-    & $recurringTestExecutable (Join-Path $projectRoot 'artifacts\recurring-update-build-1.0.11')
+    & $recurringTestExecutable (Join-Path $projectRoot 'artifacts\recurring-update-build-1.0.12')
     if ($LASTEXITCODE -ne 0) { throw "Recurring shutdown/update integration tests failed: $LASTEXITCODE" }
 }
 
@@ -100,14 +108,14 @@ $installerReferences = @('/noconfig', '/nostdlib+') + @(@('mscorlib.dll', 'Syste
 $uninstallExecutable = Join-Path $portableDirectory 'FreeIsland.Uninstall.exe'
 Write-Host '正在编译每用户卸载器…'
 Invoke-Compiler -CompilerArguments (@('/nologo', '/codepage:65001', '/target:winexe', '/platform:anycpu', '/optimize+', "/out:$uninstallExecutable", "/win32icon:$iconPath", "/win32manifest:$manifest") + $installerReferences + @($commonSource, $installerAssembly, (Join-Path $installerDirectory 'Uninstall.cs')))
-$recoveryUninstaller = Join-Path $outputRoot 'FreeIsland-Uninstall-1.0.11.exe'
+$recoveryUninstaller = Join-Path $outputRoot 'FreeIsland-Uninstall-1.0.12.exe'
 Copy-Item -LiteralPath $uninstallExecutable -Destination $recoveryUninstaller -Force
 
 $payloadNames = @('FreeIsland.exe', 'FreeIsland.exe.config', 'FreeIsland.ico', 'FreeIsland.Uninstall.exe')
 $payloadManifestPath = Join-Path $buildDirectory 'payload.sha256'
 $payloadHashes = @($payloadNames | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $portableDirectory $_) -Algorithm SHA256).Hash + '  ' + $_ })
 [System.IO.File]::WriteAllLines($payloadManifestPath, $payloadHashes, (New-Object System.Text.UTF8Encoding($false)))
-$setupExecutable = Join-Path $outputRoot 'FreeIsland-Setup-1.0.11.exe'
+$setupExecutable = Join-Path $outputRoot 'FreeIsland-Setup-1.0.12.exe'
 $setupArguments = @('/nologo', '/codepage:65001', '/target:winexe', '/platform:anycpu', '/optimize+', "/out:$setupExecutable", "/win32icon:$iconPath", "/win32manifest:$manifest")
 $setupArguments += $installerReferences
 $setupArguments += @($commonSource, $installerAssembly, (Join-Path $installerDirectory 'Setup.cs'))
@@ -129,7 +137,7 @@ Write-Host '安装包内嵌文件 SHA-256 校验通过。'
 
 $readme = Join-Path $projectRoot 'README.md'
 if (Test-Path -LiteralPath $readme) { Copy-Item -LiteralPath $readme -Destination (Join-Path $portableDirectory 'README.md') -Force }
-$zipPath = Join-Path $outputRoot 'FreeIsland-Portable-1.0.11.zip'
+$zipPath = Join-Path $outputRoot 'FreeIsland-Portable-1.0.12.zip'
 $archiveFiles = @('FreeIsland.exe', 'FreeIsland.exe.config', 'FreeIsland.ico', 'README.md') | ForEach-Object { Join-Path $portableDirectory $_ } | Where-Object { Test-Path -LiteralPath $_ }
 Compress-Archive -LiteralPath $archiveFiles -DestinationPath $zipPath -CompressionLevel Optimal -Force
 $releaseHashes = @($setupExecutable, $zipPath, $recoveryUninstaller) | ForEach-Object { (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash + '  ' + [System.IO.Path]::GetFileName($_) }

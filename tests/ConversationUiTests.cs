@@ -103,6 +103,18 @@ internal static class ConversationUiTests
             Check(material.HasRefraction == (mode == 2), "Conversation refraction exists only in Water mode");
             Check(material.IsUpdating == (mode == 2), "Off and Lite conversation materials do not run sampling timer");
             if (mode != 2) { int prior = fixtureCalls; Pump(120); Check(prior == fixtureCalls, "Off/Lite conversation never samples backdrop"); }
+            var inputBrush = (SolidColorBrush)Find<TextBox>(view, "ConversationInput").Background;
+            Check(inputBrush.Color.A == (mode == 0 ? 255 : 0), "Composer is clear in glass modes and solid with glass Off");
+            var localPanels = All<Border>(view).Where(b => (bool)b.GetValue(LiquidGlass.ClearPanelProperty)).ToList();
+            Check(localPanels.Count >= 5 && localPanels.All(b => b.Background is SolidColorBrush && ((SolidColorBrush)b.Background).Color.A == 0), "Conversation title, context, replies and footer have no fogging text backing");
+            Check(All<TextBlock>(view).All(t => t.Effect == null), "Conversation text has no blur or halo effect");
+            Check(All<Button>(view).Where(b => b.Name != "ConversationSend").All(b => b.Background is SolidColorBrush && ((SolidColorBrush)b.Background).Color.A == (mode == 0 ? 255 : 0)), "Secondary controls keep clear resting surfaces only in glass modes");
+            if (mode == 2)
+            {
+                var image = (WriteableBitmap)typeof(LiquidGlassSurface).GetField("image", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(material);
+                double physicalHeight = material.PointToScreen(new Point(0, material.ActualHeight)).Y - material.PointToScreen(new Point()).Y;
+                Check(material.HighDetailRefraction && image.PixelHeight >= Math.Min(1024, physicalHeight) - 1 && image.PixelHeight <= 1024 && image.PixelWidth <= 1024, "Interactive Water retains bounded physical detail instead of stretching a 180px capture");
+            }
         }
         Check(fixtureCalls > 0 && LiquidGlassSurface.PreviewBackdrop != null, "Water samples deterministic in-memory fixture only");
         var slider = Find<Slider>(view, "ConversationVolume"); slider.Value = 73; Pump();
@@ -247,7 +259,7 @@ internal static class ConversationUiTests
     }
     [STAThread] private static int Main(string[] args)
     {
-        output = Path.GetFullPath(args.Length > 0 ? args[0] : "artifacts/conversation-ui-1.0.10"); Directory.CreateDirectory(output);
+        output = Path.GetFullPath(args.Length > 0 ? args[0] : "artifacts/conversation-ui-1.0.11"); Directory.CreateDirectory(output);
         try
         {
             new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown }; SurfaceStyle.SnapshotMode = true; LiquidGlassSurface.PreviewBackdrop = SyntheticBackdrop;

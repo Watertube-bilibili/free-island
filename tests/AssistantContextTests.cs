@@ -76,23 +76,45 @@ internal static class AssistantContextTests
     private static void Timing()
     {
         DateTime start = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        DateTime unpaused = DateTime.MinValue;
+        var video = Scene("potplayer", "Video one");
+        var changedTitle = Scene("potplayer", "Video two");
+        var document = Scene("chrome", "Lesson - Google Slides");
         var gate = new AssistantContextGate();
-        Check(!gate.TryBegin("video", start), "Scene first needs stability");
-        Check(!gate.TryBegin("video", start.AddMilliseconds(2999)), "No request before three seconds");
-        Check(gate.TryBegin("video", start.AddSeconds(3)), "Stable for three seconds permits request");
-        Check(!gate.TryBegin("video", start.AddSeconds(10)), "Requests globally throttled for eight seconds");
-        Check(gate.TryBegin("video", start.AddSeconds(11)), "Empty suggestions can retry after eight seconds");
-        gate.MarkPresented("video", start.AddSeconds(11));
-        Check(!gate.TryBegin("video", start.AddSeconds(130)), "Same shown scene cools down for two minutes");
-        Check(gate.TryBegin("video", start.AddSeconds(131)), "Same scene becomes eligible at two minutes");
-        gate.Observe("document", start.AddSeconds(132));
-        Check(!gate.TryBegin("document", start.AddSeconds(134)), "Changed browser title needs its own stability interval");
-        Check(!gate.TryBegin("document", start.AddSeconds(135)), "Scene change does not bypass global throttle");
-        Check(gate.TryBegin("document", start.AddSeconds(139)), "Different scene is not blocked by video cooldown");
-        gate.Observe("", start.AddSeconds(140));
-        Check(!gate.TryBegin("", start.AddSeconds(150)), "No requests for own or unavailable foreground");
-        Check(!gate.TryBegin("document", start.AddSeconds(151)), "Returning from own app restarts stability interval");
-        Check(gate.TryBegin("document", start.AddSeconds(154)), "Unshown returned scene is eligible after stability");
+        Check(!gate.TryBegin(video, start, unpaused), "Scene first needs stability");
+        Check(!gate.TryBegin(video, start.AddMilliseconds(14999), unpaused), "No request before fifteen seconds");
+        Check(gate.TryBegin(video, start.AddSeconds(15), unpaused), "Stable for fifteen seconds permits request");
+        Check(!gate.TryBegin(video, start.AddSeconds(74), unpaused), "Empty results cannot retry before one minute");
+        Check(gate.TryBegin(video, start.AddSeconds(75), unpaused), "Empty results can retry after one minute");
+        gate.MarkPresented(video.ProcessName, start.AddSeconds(75));
+        Check(!gate.TryBegin(document, start.AddSeconds(650), unpaused), "New app starts its own stability interval");
+        Check(!gate.TryBegin(document, start.AddSeconds(674), unpaused), "A different app cannot bypass the ten minute global cooldown");
+        Check(gate.TryBegin(document, start.AddSeconds(675), unpaused), "Different app is eligible exactly ten minutes after display");
+        gate.MarkPresented(document.ProcessName, start.AddSeconds(675));
+        Check(!gate.TryBegin(changedTitle, start.AddSeconds(1300), unpaused), "Changing title does not immediately trigger a suggestion");
+        Check(!gate.TryBegin(changedTitle, start.AddSeconds(1315), unpaused), "Changing title cannot bypass thirty minute app cooldown");
+        Check(!gate.TryBegin(changedTitle, start.AddSeconds(1874), unpaused), "Same app remains quiet just before thirty minutes");
+        Check(gate.TryBegin(changedTitle, start.AddSeconds(1875), unpaused), "Same app eligible at thirty minute boundary");
+        Check(!gate.CanPresent(video, start, unpaused), "Clock rollback cannot produce a burst of repeated suggestions");
+
+        var full = AssistantContext.Create("potplayer", "Video one", true, true);
+        var fullGate = new AssistantContextGate();
+        Check(!fullGate.TryBegin(full, start, unpaused), "Fullscreen never starts inference");
+        Check(!fullGate.TryBegin(full, start.AddMinutes(1), unpaused), "Fullscreen does not accumulate stable time");
+        Check(!fullGate.TryBegin(video, start.AddMinutes(1), unpaused), "Leaving fullscreen starts a fresh stability interval");
+        Check(fullGate.TryBegin(video, start.AddSeconds(75), unpaused), "Windowed scene can resume after stability");
+        Check(!fullGate.CanPresent(full, start.AddSeconds(80), unpaused), "Fullscreen reached during inference blocks late display");
+        Check(!fullGate.CanPresent(AssistantContext.Empty(), start.AddSeconds(80), unpaused), "Missing foreground blocks late display");
+        Check(!fullGate.CanPresent(video, start.AddSeconds(80), start.AddHours(1)), "A newly applied snooze blocks in-flight results");
+
+        var pauseGate = new AssistantContextGate();
+        Check(!pauseGate.TryBegin(video, start, start.AddHours(1)), "One-hour pause prevents requests");
+        Check(!pauseGate.TryBegin(video, start.AddSeconds(3599), start.AddHours(1)), "Pause holds through its last second");
+        Check(pauseGate.CanPresent(video, start.AddHours(1), start.AddHours(1)), "Pause expires exactly at its deadline");
+        pauseGate.Observe("", start.AddSeconds(3599));
+        Check(!pauseGate.TryBegin(video, start.AddHours(1), start.AddHours(1)), "Polling resume still waits for stable context");
+        Check(pauseGate.TryBegin(video, start.AddSeconds(3615), start.AddHours(1)), "Automatic suggestions resume after pause and stability");
+        Check(!pauseGate.TryBegin(null, start.AddHours(2), unpaused), "Null context is quiet");
     }
     private static int Main()
     {

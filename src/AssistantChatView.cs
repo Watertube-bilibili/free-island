@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -20,6 +22,8 @@ namespace FreeIsland
         private readonly Action<string> navigate;
         private readonly IList<LocalAiTurn> history;
         private readonly Func<string, IList<LocalAiTurn>, CancellationToken, Task<LocalAiReply>> respond;
+        private readonly Func<byte[]> importSkills;
+        private readonly Action<byte[]> exportSkills;
         private readonly StackPanel messages = new StackPanel();
         private readonly ScrollViewer conversation;
         private readonly TextBox input;
@@ -35,10 +39,11 @@ namespace FreeIsland
         private readonly double textSize;
 
         internal AssistantChatView(AssistantController assistant, CoreEngine engine, IslandWindow island, Action<string> navigate, IList<LocalAiTurn> history,
-            Func<string, IList<LocalAiTurn>, CancellationToken, Task<LocalAiReply>> respond = null)
+            Func<string, IList<LocalAiTurn>, CancellationToken, Task<LocalAiReply>> respond = null, Func<byte[]> importSkills = null, Action<byte[]> exportSkills = null)
         {
             this.assistant = assistant; this.engine = engine; this.island = island; this.navigate = navigate; this.history = history;
             this.respond = respond ?? assistant.ChatAsync;
+            this.importSkills = importSkills ?? PickSkillFile; this.exportSkills = exportSkills ?? WriteSkillFile;
             textSize = engine.Settings.Scene == UsageScene.Classroom ? 16 : 14;
             Name = "IslandConversation";
             for (int i = 0; i < 6; i++) RowDefinitions.Add(new RowDefinition { Height = i == 2 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
@@ -92,7 +97,7 @@ namespace FreeIsland
             var footer = new DockPanel();
             var settings = Button("模型设置", delegate { CancelRequest(); island.DismissAssistant(); island.Collapse(); navigate("assistant"); });
             settings.FontSize = 12; settings.Padding = new Thickness(1, 0, 1, 0); settings.MinHeight = 44; DockPanel.SetDock(settings, Dock.Right); footer.Children.Add(settings);
-            var clear = Button("清空", delegate { if (pending != null) StopResponse(); history.Clear(); messages.Children.Clear(); Message("新对话。想先做什么？", false); });
+            var clear = Button("清空", delegate { if (pending != null) StopResponse(); SetComposerVisible(true); history.Clear(); messages.Children.Clear(); Message("新对话。想先做什么？", false); });
             clear.FontSize = 12; clear.Padding = new Thickness(0); clear.MinHeight = 44; DockPanel.SetDock(clear, Dock.Right); footer.Children.Add(clear);
             state = Copy("本机对话 · 操作需确认", 11, "#58657A"); state.Name = "ConversationState"; footer.Children.Add(Readable(state)); Add(footer, 5);
             Unloaded += delegate { CancelRequest(); };
@@ -127,38 +132,121 @@ namespace FreeIsland
             var button = host as Button;
             if (button != null) { if (button.Name != "ConversationSend") { button.Background = background; button.Foreground = foreground; } return; }
             var editor = host as TextBox;
-            if (editor != null && editor.Name == "ConversationSkillName") { editor.Background = background; editor.Foreground = foreground; editor.CaretBrush = foreground; return; }
+            if (editor != null && (editor.Name == "ConversationSkillName" || editor.Name == "ConversationEditSkillName")) { editor.Background = background; editor.Foreground = foreground; editor.CaretBrush = foreground; return; }
             for (int i = 0; i < VisualTreeHelper.GetChildrenCount(host); i++) ApplySecondaryMaterial(VisualTreeHelper.GetChild(host, i), background, foreground);
         }
         private void ShowSkills()
+        { ShowSkills(""); }
+        private void SetComposerVisible(bool visible)
+        {
+            foreach (UIElement child in Children)
+                if (GetRow(child) == 3 || GetRow(child) == 4) child.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        }
+        private void ShowSkills(string query)
         {
             if (pending != null) return;
+            SetComposerVisible(true);
             foreach (var control in proposedControls) control.IsEnabled = false;
             proposedControls.Clear(); messages.Children.Clear();
             Message("本地技能库", false);
-            if (!string.IsNullOrEmpty(assistant.Skills.Error)) { Message(assistant.Skills.Error, false); return; }
-            var saved = assistant.Skills.List();
-            if (saved.Count == 0) Message("还没有技能。告诉我「帮我创建一个课堂练习技能，包含五分钟计时和音量控制」，生成后点「保存技能」。", false);
+            if (!string.IsNullOrEmpty(assistant.Skills.Error)) Message(assistant.Skills.Error, false);
+            var tools = new WrapPanel { Margin = new Thickness(0, -8, 0, 14) };
+            var import = Button("导入", delegate { try { var bytes = importSkills(); if (bytes != null) PreviewSkillImport(bytes); } catch (Exception ex) { state.Text = ex.Message; } });
+            import.Name = "ConversationImportSkills"; import.Margin = new Thickness(0, 0, 6, 0); tools.Children.Add(import); proposedControls.Add(import);
+            var export = Button("导出", delegate { try { exportSkills(assistant.Skills.Export()); state.Text = "技能导出已结束"; } catch (Exception ex) { state.Text = ex.Message; } });
+            export.Name = "ConversationExportSkills"; tools.Children.Add(export); messages.Children.Add(tools); proposedControls.Add(export);
+            var saved = query.Length == 0 ? assistant.Skills.List() : assistant.Skills.Find(query);
+            if (saved.Count == 0) Message(query.Length == 0 ? "还没有技能。告诉我「帮我创建一个课堂练习技能，包含五分钟计时和音量控制」，生成后点「保存技能」。" : "没有找到这个技能。可以换个名称，或点击顶部「技能」查看全部。", false);
             foreach (var item in saved)
             {
                 var skill = item;
                 Message(skill.Name + "\n" + string.Join(" · ", skill.Actions.Select(ActionLabel)), false);
                 var row = new WrapPanel { Margin = new Thickness(0, -10, 0, 16) };
                 var open = Button("展开技能", delegate { PreviewSkill(skill); });
-                AutomationProperties.SetName(open, "展开技能：" + skill.Name); open.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(open);
+                AutomationProperties.SetName(open, "展开技能：" + skill.Name); open.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(open); proposedControls.Add(open);
+                var edit = Button("编辑", delegate { EditSkill(skill); });
+                AutomationProperties.SetName(edit, "编辑技能：" + skill.Name); edit.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(edit); proposedControls.Add(edit);
                 var remove = Button("移除", delegate
                 {
                     try { assistant.Skills.Remove(skill.Id); ShowSkills(); state.Text = "已从本地技能库移除"; }
                     catch (Exception ex) { state.Text = ex.Message; }
                 });
-                AutomationProperties.SetName(remove, "移除技能：" + skill.Name); row.Children.Add(remove); messages.Children.Add(row);
+                AutomationProperties.SetName(remove, "移除技能：" + skill.Name); row.Children.Add(remove); messages.Children.Add(row); proposedControls.Add(remove);
             }
             state.Text = "最多 12 个技能 · 展开后逐项确认";
             island.ResizeAssistant(548); conversation.ScrollToHome(); island.RefreshAssistantInk();
         }
+        private void EditSkill(LocalAiSkill skill)
+        {
+            if (pending != null) return;
+            SetComposerVisible(false);
+            proposedControls.Clear(); messages.Children.Clear(); Message("编辑技能", false);
+            var name = new TextBox { Name = "ConversationEditSkillName", Text = skill.Name, MaxLength = 24, MinHeight = 44,
+                FontSize = textSize, Padding = new Thickness(8), Margin = new Thickness(0, 0, 0, 14), BorderBrush = SurfaceStyle.Brush("#AAB6C8"), BorderThickness = new Thickness(1) };
+            AutomationProperties.SetName(name, "编辑技能名称，最多24字"); messages.Children.Add(name); proposedControls.Add(name);
+            var actions = skill.Actions.Select(a => new LocalAiAction { Kind = a.Kind, Title = a.Title, Seconds = a.Seconds }).ToList();
+            foreach (var action in actions)
+            {
+                if (action.Kind != "countdown") { messages.Children.Add(Readable(Copy(ActionLabel(action), textSize, "#18243A"))); continue; }
+                var label = Copy("倒计时 · " + TimeSpan.FromSeconds(action.Seconds).ToString(@"h\:mm\:ss"), textSize, "#18243A");
+                messages.Children.Add(Readable(label));
+                var duration = new Slider { Name = "ConversationSkillDuration", Minimum = 60, Maximum = 14400, Value = action.Seconds, TickFrequency = 1, IsSnapToTickEnabled = true, IsMoveToPointEnabled = true, MinHeight = 44 };
+                AutomationProperties.SetName(duration, "技能倒计时秒数，60至14400秒"); ControlWindow.ApplyTouchSlider(duration);
+                duration.ValueChanged += delegate { action.Seconds = (int)Math.Round(duration.Value); label.Text = "倒计时 · " + TimeSpan.FromSeconds(action.Seconds).ToString(@"h\:mm\:ss"); };
+                messages.Children.Add(duration); proposedControls.Add(duration);
+                var presets = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
+                foreach (int minutes in new[] { 3, 5, 10, 25 }) { int seconds = minutes * 60; var preset = Button(minutes + " 分钟", delegate { duration.Value = seconds; }); preset.Margin = new Thickness(0, 0, 5, 0); presets.Children.Add(preset); proposedControls.Add(preset); }
+                messages.Children.Add(presets);
+            }
+            var row = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
+            var save = Button("保存修改", delegate { try { assistant.Skills.Update(skill.Id, name.Text, actions); ShowSkills(); state.Text = "技能修改已保存"; } catch (Exception ex) { state.Text = ex.Message; } });
+            save.Name = "ConversationUpdateSkill"; save.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(save); proposedControls.Add(save);
+            var cancel = Button("取消", ShowSkills); row.Children.Add(cancel); proposedControls.Add(cancel); messages.Children.Add(row);
+            state.Text = "保存后生效 · 不会启动任务"; conversation.ScrollToHome(); island.RefreshAssistantInk();
+        }
+        private byte[] PickSkillFile()
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog { Title = "导入浮岛技能", Filter = "浮岛技能 (*.json)|*.json", CheckFileExists = true, Multiselect = false };
+            if (dialog.ShowDialog(island) != true) return null;
+            using (var stream = File.OpenRead(dialog.FileName))
+            {
+                if (stream.Length < 1 || stream.Length > 65536) throw new InvalidDataException("技能文件需小于 64 KB。");
+                var bytes = new byte[(int)stream.Length]; int offset = 0, read;
+                while (offset < bytes.Length && (read = stream.Read(bytes, offset, bytes.Length - offset)) > 0) offset += read;
+                if (offset != bytes.Length || stream.ReadByte() != -1) throw new InvalidDataException("技能文件读取不完整。"); return bytes;
+            }
+        }
+        private void WriteSkillFile(byte[] bytes)
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog { Title = "导出浮岛技能", Filter = "浮岛技能 (*.json)|*.json", FileName = "浮岛技能.json", DefaultExt = ".json", OverwritePrompt = true };
+            if (dialog.ShowDialog(island) == true) File.WriteAllBytes(dialog.FileName, bytes);
+        }
+        internal void PreviewSkillImport(byte[] bytes)
+        {
+            if (pending != null) return;
+            var copy = bytes == null ? null : (byte[])bytes.Clone(); var proposed = assistant.Skills.PreviewImport(copy);
+            proposedControls.Clear(); messages.Children.Clear(); Message("确认导入技能", false);
+            Message(proposed.Count == 0 ? "这个文件没有技能。" : string.Join("\n", proposed.Select(s => s.Name + " · " + string.Join("、", s.Actions.Select(ActionLabel)))), false);
+            Message("导入只加入技能库，不执行操作。相同内容会自动跳过。", false);
+            var row = new WrapPanel(); var confirm = Button("确认导入", delegate { try { int count = assistant.Skills.Import(copy); ShowSkills(); state.Text = "已导入 " + count + " 个技能"; } catch (Exception ex) { state.Text = ex.Message; } });
+            confirm.Name = "ConversationConfirmSkillImport"; confirm.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(confirm); proposedControls.Add(confirm);
+            var cancel = Button("取消", ShowSkills); row.Children.Add(cancel); proposedControls.Add(cancel); messages.Children.Add(row);
+            state.Text = "请核对名称与操作"; conversation.ScrollToHome(); island.RefreshAssistantInk();
+        }
+        private bool TryOpenSavedSkill(string request)
+        {
+            var match = Regex.Match(request, @"^(?:使用|打开|展开|运行)技能\s*[：:]?\s*(.*?)\s*$");
+            if (!match.Success) return false;
+            string query = match.Groups[1].Value.Trim().Trim('「', '」', '“', '”', '"', '\'');
+            input.Clear(); island.ResizeAssistant(548);
+            var found = assistant.Skills.Find(query);
+            if (query.Length > 0 && found.Count == 1) PreviewSkill(found[0]); else ShowSkills(query);
+            return true;
+        }
         private void PreviewSkill(LocalAiSkill skill)
         {
             if (pending != null) return;
+            SetComposerVisible(true);
             foreach (var control in proposedControls) control.IsEnabled = false;
             proposedControls.Clear(); messages.Children.Clear();
             Message(skill.Name + "\n点击下方操作才会执行。", false);
@@ -208,6 +296,7 @@ namespace FreeIsland
         {
             string request = input.Text.Trim(); if (pending != null || closed || request.Length == 0) return;
             if (request.Length > 600) { state.Text = "请将问题缩短到 600 字以内"; return; }
+            if (TryOpenSavedSkill(request)) return;
             var cts = new CancellationTokenSource(); pending = cts; int current = ++generation;
             island.ResizeAssistant(548);
             foreach (var control in proposedControls) control.IsEnabled = false;

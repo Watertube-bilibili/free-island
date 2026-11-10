@@ -27,7 +27,7 @@ namespace FreeIsland
         public bool Pressed { get { return (bool)GetValue(PressedProperty); } set { SetValue(PressedProperty, value); } }
         public bool Compact { get { return (bool)GetValue(CompactProperty); } set { SetValue(CompactProperty, value); } }
         public bool HighDetailRefraction { get; set; }
-        private const int ActiveFrameMilliseconds = 16, RestingFrameMilliseconds = 50;
+        private const int ActiveFrameMilliseconds = 16, RestingFrameMilliseconds = 16;
         private readonly DispatcherTimer timer;
         private readonly WaterSpring pressure = new WaterSpring(), pullX = new WaterSpring(), pullY = new WaterSpring();
         private Window captureWindow;
@@ -37,13 +37,14 @@ namespace FreeIsland
         private Rect screenBounds;
         private Point? previousOrigin;
         private DateTime lastTick, lastCapture, inkSince;
-        private bool lightInk, candidateInk, registered, moving;
+        private bool lightInk, candidateInk, registered, moving, renderClockAttached;
         private uint previousHash;
         internal FrameworkElement InkHost;
         // Tests provide a known slide fixture; production never assigns this delegate.
         internal static Func<Rect, BackdropFrame> PreviewBackdrop = null;
         internal bool HasRefraction { get { return image != null && backdrop != null; } }
         internal bool IsUpdating { get { return timer.IsEnabled; } }
+        internal int RenderedFrames { get; private set; }
         internal void RefreshInk() { if (InkHost != null) LiquidGlass.Ink(InkHost, Mode, lightInk && Capture); }
         private bool Motion { get { return Mode == 2 && SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast && !SurfaceStyle.SnapshotMode; } }
         private bool Capture { get { return Mode == 2 && !SystemParameters.HighContrast && (!SurfaceStyle.SnapshotMode || PreviewBackdrop != null); } }
@@ -91,6 +92,7 @@ namespace FreeIsland
             }
             else if (!Capture && registered) { LiquidGlass.Unregister(captureWindow, this); registered = false; }
             if (!Capture) { backdrop = null; image = null; }
+            SetRenderClock(Capture);
             if (InkHost != null) LiquidGlass.Ink(InkHost, Mode, lightInk && Capture);
             if (Capture || Motion && (Pressed || pressure.Value != 0 || moving))
             {
@@ -102,6 +104,7 @@ namespace FreeIsland
         private void Stop()
         {
             timer.Stop();
+            SetRenderClock(false);
             if (registered) { LiquidGlass.Unregister(captureWindow, this); registered = false; }
             captureWindow = null; backdrop = null; image = null; previousOrigin = null;
             pressure.Value = pressure.Target = pressure.Velocity = 0;
@@ -125,10 +128,26 @@ namespace FreeIsland
             pressure.Value = .95; pressure.Target = 0; pressure.Velocity = -1.5;
             moving = true; Refresh();
         }
+        private void SetRenderClock(bool enabled)
+        {
+            if (enabled == renderClockAttached) return;
+            renderClockAttached = enabled;
+            if (enabled) CompositionTarget.Rendering += RenderFrame;
+            else CompositionTarget.Rendering -= RenderFrame;
+        }
+        private void RenderFrame(object sender, EventArgs args)
+        {
+            // Rendering follows the compositor clock; the low-priority timer remains
+            // a fallback. Both enter the same budgeted callback, never two captures.
+            if ((DateTime.UtcNow - lastTick).TotalMilliseconds >= (moving || Pressed ? ActiveFrameMilliseconds : RestingFrameMilliseconds)) Tick(sender, args);
+        }
         private void Tick(object sender, EventArgs args)
         {
             if (!IsVisible || !IsLoaded) { Stop(); return; }
+            double budget = moving || Pressed ? ActiveFrameMilliseconds : RestingFrameMilliseconds;
+            if ((DateTime.UtcNow - lastTick).TotalMilliseconds < budget) return;
             if (!Capture && registered) { Refresh(); return; }
+            long frameStart = System.Diagnostics.Stopwatch.GetTimestamp();
             DateTime now = DateTime.UtcNow;
             double dt = Math.Min(.04, Math.Max(.001, (now - lastTick).TotalSeconds)); lastTick = now;
             bool dirty = false;
@@ -167,7 +186,10 @@ namespace FreeIsland
                 if (lens != null && backdrop != null) UpdateInk();
             }
             catch (InvalidOperationException) { backdrop = null; image = null; InvalidateVisual(); }
-            timer.Interval = TimeSpan.FromMilliseconds(moving || Pressed ? ActiveFrameMilliseconds : RestingFrameMilliseconds);
+            // DispatcherTimer waits after this callback returns. Subtract the work
+            // already spent so a 15 ms lens does not turn a 30 ms target into 45 ms.
+            double elapsed = (System.Diagnostics.Stopwatch.GetTimestamp() - frameStart) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            timer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, (moving || Pressed ? ActiveFrameMilliseconds : RestingFrameMilliseconds) - elapsed));
             if (!Capture && !moving && !Pressed) timer.Stop();
         }
         private void RenderLens()
@@ -193,6 +215,7 @@ namespace FreeIsland
                 screenBounds.Left - backdrop.ScreenBounds.Left, screenBounds.Top - backdrop.ScreenBounds.Top, screenBounds.Width / w, screenBounds.Height / h,
                 LiquidGlass.Transparency, LiquidGlass.Highlight);
             image.WritePixels(new Int32Rect(0, 0, w, h), lens.Pixels, w * 4, 0);
+            RenderedFrames++;
         }
         private void UpdateInk()
         {

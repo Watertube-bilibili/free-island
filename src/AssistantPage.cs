@@ -68,7 +68,11 @@ namespace FreeIsland
                 Button install = null, start = null;
                 install = Btn("一键安装并启用", async delegate { await RunAssistantAction(assistant.InstallAndEnableAsync); }, true);
                 start = Btn("启用已下载模型", async delegate { await RunAssistantAction(assistant.EnableAsync); }, false, new Thickness(10, 0, 0, 0));
-                var stop = Btn("关闭模型 · 释放内存", delegate { assistant.DisableModel(); Notify("模型已关闭，内存已释放。"); }, false, new Thickness(10, 0, 0, 0));
+                var stop = Btn("关闭模型 · 释放内存", delegate
+                {
+                    try { assistant.DisableModel(); Notify("模型已关闭，内存已释放。"); }
+                    catch (Exception ex) { Notify(ex.Message, true); }
+                }, false, new Thickness(10, 0, 0, 0));
                 var cancel = Btn("取消下载", delegate { assistant.CancelInstall(); }, false, new Thickness(10, 0, 0, 0));
                 controls.Children.Add(install); controls.Children.Add(start); controls.Children.Add(stop); controls.Children.Add(cancel);
                 page.Children.Add(status); page.Children.Add(progress); page.Children.Add(controls);

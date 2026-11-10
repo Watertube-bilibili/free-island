@@ -10,6 +10,11 @@ namespace FreeIsland
         internal readonly byte[] Pixels;
         private readonly float[] sampleX, sampleY, light;
         private readonly byte[] coverage;
+        private readonly int[] sourceIndex;
+        private readonly byte[] weightX, weightY;
+        private bool samplingMapValid;
+        private int mappedWidth, mappedHeight, mappedStride;
+        private double mappedX, mappedY, mappedScaleX, mappedScaleY;
         private double previousRadius = -1, previousPressure, previousX, previousY, previousRefraction = -1;
         private bool previousCompact;
         internal double MeanBrightness { get; private set; }
@@ -21,6 +26,7 @@ namespace FreeIsland
             int count = Width * Height;
             Pixels = new byte[count * 4]; sampleX = new float[count]; sampleY = new float[count];
             light = new float[count]; coverage = new byte[count];
+            sourceIndex = new int[count]; weightX = new byte[count]; weightY = new byte[count];
         }
 
         internal void Shape(double radius, double pressure, double pullX, double pullY, bool compact = false, double refraction = 1)
@@ -34,6 +40,7 @@ namespace FreeIsland
             previousRadius = radius; previousPressure = pressure; previousX = pullX; previousY = pullY;
             previousCompact = compact;
             previousRefraction = refraction;
+            samplingMapValid = false;
             double halfW = Width * .5, halfH = Height * .5;
             double sx = 1 + pressure * .025 + Math.Abs(pullX) * .025 - Math.Abs(pullY) * .009;
             double sy = 1 - pressure * .037 + Math.Abs(pullY) * .025 - Math.Abs(pullX) * .009;
@@ -42,6 +49,7 @@ namespace FreeIsland
             double strength = edgeWidth * .68 * (1 - pressure * .15) * refraction;
             double r = Math.Min(radius, Math.Min(halfW - inset, halfH - inset));
             double straightX = halfW - inset - r, straightY = halfH - inset - r;
+            double magnification = 1 + .028 * refraction, transmission = Math.Min(1, refraction);
             for (int y = 0, i = 0; y < Height; y++)
             {
                 for (int x = 0; x < Width; x++, i++)
@@ -55,16 +63,26 @@ namespace FreeIsland
                     double alpha = Clamp(.6 - distance, 0, 1);
                     coverage[i] = (byte)(alpha * 255 + .5);
                     if (alpha == 0) { light[i] = 0; continue; }
+                    double depth = Math.Max(0, -distance);
+                    // Away from the curved lip the bevel is exactly zero and the
+                    // exponential reflections are sub-pixel. Keep the full-resolution
+                    // interior clear without paying for normals/exp at every pixel.
+                    if (depth >= Math.Max(20, edgeWidth))
+                    {
+                        sampleX[i] = (float)(x + .5 + (halfW + px / magnification - x - .5) * transmission);
+                        sampleY[i] = (float)(y + .5 + (halfH + py / magnification - y - .5) * transmission);
+                        light[i] = .012f;
+                        continue;
+                    }
                     double nx, ny;
                     if (corner > .0001) { nx = ax / corner * Math.Sign(px); ny = ay / corner * Math.Sign(py); }
                     else if (qx > qy) { nx = Math.Sign(px); ny = 0; }
                     else { nx = 0; ny = Math.Sign(py); }
-                    double depth = Math.Max(0, -distance);
                     double bevel = Clamp(1 - depth / edgeWidth, 0, 1);
                     // A clear interior, mild magnification and a stronger curved lip.
                     double bend = strength * bevel * bevel * (3 - 2 * bevel);
-                    sampleX[i] = (float)(x + .5 + (halfW + px / (1 + .028 * refraction) - nx * bend - x - .5) * Math.Min(1, refraction));
-                    sampleY[i] = (float)(y + .5 + (halfH + py / (1 + .028 * refraction) - ny * bend - y - .5) * Math.Min(1, refraction));
+                    sampleX[i] = (float)(x + .5 + (halfW + px / magnification - nx * bend - x - .5) * transmission);
+                    sampleY[i] = (float)(y + .5 + (halfH + py / magnification - ny * bend - y - .5) * transmission);
                     double topLight = Math.Max(0, -nx * .55 - ny * .83);
                     double bottomLight = Math.Max(0, nx * .68 + ny * .74);
                     double rim = Math.Exp(-depth * depth / 1.35);
@@ -87,15 +105,23 @@ namespace FreeIsland
             // Transmission changes material density, never label opacity. Refracted
             // backdrop stays opaque to avoid mixing two displaced copies of a slide.
             double density = Math.Pow(1 - transparency, 3);
+            bool updateMap = !samplingMapValid || mappedWidth != backgroundWidth || mappedHeight != backgroundHeight || mappedStride != backgroundStride ||
+                mappedX != sourceX || mappedY != sourceY || mappedScaleX != sourceScaleX || mappedScaleY != sourceScaleY;
             double brightness = 0; int samples = 0;
             for (int i = 0; i < coverage.Length; i++)
             {
                 int destination = i * 4, alpha = coverage[i];
                 if (alpha == 0) { Pixels[destination] = Pixels[destination + 1] = Pixels[destination + 2] = Pixels[destination + 3] = 0; continue; }
-                double bx = Clamp(sourceX + sampleX[i] * sourceScaleX, 0, backgroundWidth - 1.001);
-                double by = Clamp(sourceY + sampleY[i] * sourceScaleY, 0, backgroundHeight - 1.001);
-                int ix = (int)bx, iy = (int)by, wx = (int)((bx - ix) * 256), wy = (int)((by - iy) * 256);
-                int a = iy * backgroundStride + ix * 4, b = a + 4, c = a + backgroundStride, d = c + 4;
+                if (updateMap)
+                {
+                    double bx = Clamp(sourceX + sampleX[i] * sourceScaleX, 0, backgroundWidth - 1.001);
+                    double by = Clamp(sourceY + sampleY[i] * sourceScaleY, 0, backgroundHeight - 1.001);
+                    int ix = (int)bx, iy = (int)by;
+                    sourceIndex[i] = iy * backgroundStride + ix * 4;
+                    weightX[i] = (byte)((bx - ix) * 256); weightY[i] = (byte)((by - iy) * 256);
+                }
+                int wx = weightX[i], wy = weightY[i];
+                int a = sourceIndex[i], b = a + 4, c = a + backgroundStride, d = c + 4;
                 double illumination = Clamp(light[i] * highlight, -.8, .95);
                 for (int channel = 0; channel < 3; channel++)
                 {
@@ -109,6 +135,8 @@ namespace FreeIsland
                 }
                 Pixels[destination + 3] = (byte)alpha;
             }
+            mappedWidth = backgroundWidth; mappedHeight = backgroundHeight; mappedStride = backgroundStride;
+            mappedX = sourceX; mappedY = sourceY; mappedScaleX = sourceScaleX; mappedScaleY = sourceScaleY; samplingMapValid = true;
             MeanBrightness = samples == 0 ? .5 : brightness / samples;
         }
 

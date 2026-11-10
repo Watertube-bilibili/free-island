@@ -81,21 +81,39 @@ namespace FreeIsland
 
         public void Save()
         {
-            if (savedEnabled != Preferences.Enabled || savedRules != Preferences.RuleShortcutsEnabled || savedTitle != Preferences.IncludeWindowTitle || savedModel != Preferences.SelectedModelId)
+            try
             {
-                operationVersion++;
-                CancelRequests();
-                Service.CancelInstall();
-                contextGate.Observe("", DateTime.UtcNow);
-                retryAfter = DateTime.MinValue;
-                if (!Preferences.IncludeWindowTitle && LastContext != null)
-                    LastContext = AssistantContext.Create(LastContext.ProcessName, "", LastContext.IsFullScreen, false);
+                if (savedEnabled != Preferences.Enabled || savedRules != Preferences.RuleShortcutsEnabled || savedTitle != Preferences.IncludeWindowTitle || savedModel != Preferences.SelectedModelId)
+                {
+                    operationVersion++;
+                    CancelRequests();
+                    Service.CancelInstall();
+                    contextGate.Observe("", DateTime.UtcNow);
+                    retryAfter = DateTime.MinValue;
+                    ClearUnsharedTitle();
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
+                string temp = settingsPath + ".tmp";
+                using (var stream = File.Create(temp)) new DataContractJsonSerializer(typeof(AssistantPreferences)).WriteObject(stream, Preferences);
+                if (File.Exists(settingsPath)) File.Replace(temp, settingsPath, null); else File.Move(temp, settingsPath);
+                RememberPreferences();
             }
-            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
-            string temp = settingsPath + ".tmp";
-            using (var stream = File.Create(temp)) new DataContractJsonSerializer(typeof(AssistantPreferences)).WriteObject(stream, Preferences);
-            if (File.Exists(settingsPath)) File.Replace(temp, settingsPath, null); else File.Move(temp, settingsPath);
-            RememberPreferences();
+            catch
+            {
+                Preferences.Enabled = savedEnabled;
+                Preferences.RuleShortcutsEnabled = savedRules;
+                Preferences.IncludeWindowTitle = savedTitle;
+                Preferences.SelectedModelId = savedModel;
+                // Do not restore title text cleared during a failed preference change.
+                ClearUnsharedTitle();
+                throw;
+            }
+        }
+
+        private void ClearUnsharedTitle()
+        {
+            if (!Preferences.IncludeWindowTitle && LastContext != null)
+                LastContext = AssistantContext.Create(LastContext.ProcessName, "", LastContext.IsFullScreen, false);
         }
 
         private void RememberPreferences()
@@ -118,7 +136,23 @@ namespace FreeIsland
 
         public void DisableModel()
         {
-            operationVersion++; CancelRequests(); Preferences.Enabled = false; Save(); Service.CancelInstall(); Service.Stop();
+            operationVersion++; CancelRequests(); Preferences.Enabled = false;
+            Exception saveFailure = null;
+            try { Save(); }
+            catch (Exception ex) { saveFailure = ex; }
+            finally
+            {
+                // Stopping the owned runner must work even when settings are locked.
+                Preferences.Enabled = false;
+                savedEnabled = false;
+                Service.Stop();
+            }
+            if (saveFailure != null)
+            {
+                LastError = "本次模型已关闭，内存已释放，但关闭状态未保存；下次启动可能再次启用。请检查设置目录是否可写后重试。";
+                throw new InvalidOperationException(LastError, saveFailure);
+            }
+            LastError = null;
         }
         public void CancelInstall() { operationVersion++; CancelRequests(); Service.CancelInstall(); }
 
@@ -162,7 +196,9 @@ namespace FreeIsland
                 if (disposed || version != operationVersion || modelId != Preferences.SelectedModelId) throw new OperationCanceledException();
                 await Service.StartAsync(modelId, lifetime.Token);
                 if (disposed || version != operationVersion || modelId != Preferences.SelectedModelId) { Service.Stop(); throw new OperationCanceledException(); }
-                Preferences.Enabled = true; retryAfter = DateTime.MinValue; Save();
+                Preferences.Enabled = true; retryAfter = DateTime.MinValue;
+                try { Save(); }
+                catch { Service.Stop(); throw; }
             }
             finally { if (entered) requests.Release(); activating = false; }
         }

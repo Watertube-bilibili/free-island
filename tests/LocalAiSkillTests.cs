@@ -126,16 +126,89 @@ internal static class LocalAiSkillTests
         byte[] lockedBytes = File.ReadAllBytes(FileName(lockedDirectory));
         using (var hold = new FileStream(FileName(lockedDirectory), FileMode.Open, FileAccess.Read, FileShare.Read))
             Reject(delegate { locked.Save("保存应失败", Actions()); }, "Replacement failure is surfaced when the target is held without delete sharing");
-        Check(!string.IsNullOrEmpty(locked.Error) && locked.List().Count == 1 && lockedBytes.SequenceEqual(File.ReadAllBytes(FileName(lockedDirectory))), "Failed replacement keeps the prior disk document and memory intact");
+        Check(locked.Error == null && locked.List().Count == 1 && lockedBytes.SequenceEqual(File.ReadAllBytes(FileName(lockedDirectory))), "Temporary replacement failure preserves data without permanently blocking writes");
         Check(Directory.GetFiles(lockedDirectory, "*.tmp").Length == 0, "Failed replacement cleans only its own temporary file");
+        locked.Save("锁释放后重试", Actions());
+        Check(locked.List().Count == 2 && new LocalAiSkillStore(lockedDirectory).List().Count == 2, "Explicit save succeeds after temporary lock is released without restarting");
+    }
+
+    private static void EditingAndLookup(string directory)
+    {
+        var store = new LocalAiSkillStore(directory);
+        var initial = store.Save("课堂练习", Actions());
+        var draft = Actions(); draft[0].Seconds = 600;
+        var edited = store.Update(initial.Id, "  小组讨论  ", draft);
+        Check(edited.Id == initial.Id && edited.Name == "小组讨论" && edited.Actions[0].Seconds == 600, "Update preserves identity and commits edited name and duration");
+        draft[0].Seconds = 3600; edited.Actions[0].Seconds = 120;
+        Check(store.List()[0].Actions[0].Seconds == 600 && new LocalAiSkillStore(directory).List()[0].Name == "小组讨论", "Update input/result are isolated and changes survive restart");
+        byte[] before = File.ReadAllBytes(FileName(directory));
+        Reject(delegate { store.Update(initial.Id, "", Actions()); }, "Invalid edit name is rejected");
+        Reject(delegate { store.Update(initial.Id, "不能更新", new[] { Action("countdown", "越界", 5) }); }, "Invalid edited action is rejected");
+        Reject(delegate { store.Update(Guid.NewGuid().ToString("D"), "已移除", Actions()); }, "A stale missing identifier cannot create a replacement");
+        Reject(delegate { store.Update("../技能", "不合法", Actions()); }, "Edit identifiers are validated");
+        Check(store.Error == null && before.SequenceEqual(File.ReadAllBytes(FileName(directory))) && store.List()[0].Actions[0].Seconds == 600, "Rejected edits preserve disk and memory without poisoning future writes");
+        store.Save("小组讨论进阶", new[] { Action("open_timer", "计时") });
+        store.Save("Evening MUSIC", new[] { Action("volume", "音量") });
+        Check(store.Find("小组讨论").Count == 1 && store.Find("小组讨论")[0].Id == initial.Id, "Exact skill match takes precedence over substring matches");
+        Check(store.Find("讨论").Count == 2 && store.Find("music").Count == 1, "Lookup supports partial names and invariant case-insensitive matching");
+        Check(store.Find(null).Count == 0 && store.Find("  ").Count == 0 && store.Find(new string('a', 25)).Count == 0 && store.Find("讨论\n").Count == 0, "Empty, oversized and control-bearing searches produce no skills");
+        var found = store.Find("讨论"); found[0].Name = "伪造"; found[0].Actions.Clear();
+        Check(store.List()[0].Name == "小组讨论" && store.List()[0].Actions.Count == 3, "Lookup returns defensive copies without executing or mutating anything");
+        while (store.List().Count < 12) store.Save("练习" + store.List().Count, new[] { Action("open_timer", "计时") });
+        store.Update(initial.Id, "容量满也能改名", Actions());
+        Check(store.List().Count == 12 && store.List()[0].Name == "容量满也能改名", "Editing a full library does not consume an additional slot");
+    }
+
+    private static void Transfer(string root)
+    {
+        string sourceDirectory = Path.Combine(root, "source"), targetDirectory = Path.Combine(root, "target");
+        var source = new LocalAiSkillStore(sourceDirectory);
+        var first = source.Save("课前准备", Actions()); var second = source.Save("调整音量", new[] { Action("volume", "音量") });
+        byte[] exported = source.Export();
+        Check(exported.SequenceEqual(File.ReadAllBytes(FileName(sourceDirectory))), "Export represents the complete version-one library without changing it");
+        var target = new LocalAiSkillStore(targetDirectory);
+        var preview = target.PreviewImport(exported);
+        Check(preview.Count == 2 && preview[0].Name == first.Name && !Directory.Exists(targetDirectory), "Import preview validates names and parameters without creating or executing anything");
+        preview[0].Name = "篡改预览"; preview[0].Actions.Clear();
+        Check(target.Import(exported) == 2 && target.List()[0].Name == first.Name && target.List()[0].Actions.Count == 3, "Explicit import uses validated source bytes rather than mutable preview aliases");
+        Check(target.List()[0].Id != first.Id && target.List()[1].Id != second.Id, "Imported skills receive new local identifiers");
+        var restored = new LocalAiSkillStore(targetDirectory);
+        Check(restored.List().Count == 2 && restored.List()[0].Actions[0].Seconds == 300 && restored.List()[1].Actions[0].Kind == "volume", "Export/import preserves useful action content across independent data directories");
+        byte[] before = File.ReadAllBytes(FileName(targetDirectory));
+        Check(target.Import(exported) == 0 && target.List().Count == 2 && before.SequenceEqual(File.ReadAllBytes(FileName(targetDirectory))), "Repeated import deduplicates exact content without rewriting the file");
+        var altered = Skill(); altered.Id = first.Id; altered.Name = first.Name; altered.Actions[0].Seconds = 600;
+        Check(target.Import(Document(altered)) == 1 && target.List().Count == 3 && target.List()[0].Actions[0].Seconds == 300 && target.List()[2].Actions[0].Seconds == 600, "An imported same-name edited composition is added without overwriting an existing skill");
+        var duplicate = Skill(); duplicate.Id = Guid.NewGuid().ToString("D");
+        var duplicate2 = Skill(); duplicate2.Id = Guid.NewGuid().ToString("D");
+        Check(target.Import(Document(duplicate, duplicate2)) == 1, "Equivalent skills inside one import consume only one new slot");
+        while (target.List().Count < 11) target.Save("现有" + target.List().Count, new[] { Action("open_timer", "计时") });
+        before = File.ReadAllBytes(FileName(targetDirectory));
+        var extra1 = Skill(); extra1.Id = Guid.NewGuid().ToString("D"); extra1.Name = "额外一";
+        var extra2 = Skill(); extra2.Id = Guid.NewGuid().ToString("D"); extra2.Name = "额外二";
+        Reject(delegate { target.Import(Document(extra1, extra2)); }, "An entire import is rejected if additions would exceed capacity");
+        Check(target.List().Count == 11 && before.SequenceEqual(File.ReadAllBytes(FileName(targetDirectory))), "An over-capacity import never partially adds its first item");
+        var unsupported = Skill(); unsupported.Actions = new List<LocalAiAction> { Action("shell", "运行脚本") };
+        var invalid = new[] { new byte[0], new byte[65537], Encoding.UTF8.GetBytes("not json"), Encoding.UTF8.GetBytes("{\"version\":1,\"skills\":[]} junk"), Document(unsupported), Document(Skill(), Skill()) };
+        foreach (var data in invalid)
+        {
+            Reject(delegate { target.PreviewImport(data); }, "Malformed, unsupported or excessive import is rejected during preview");
+            Reject(delegate { target.Import(data); }, "Malformed import cannot bypass preview validation");
+        }
+        Check(target.Error == null && before.SequenceEqual(File.ReadAllBytes(FileName(targetDirectory))) && target.List().Count == 11, "Rejected import bytes leave the existing library usable and byte-identical");
+        string emptyDirectory = Path.Combine(root, "empty"); var empty = new LocalAiSkillStore(emptyDirectory);
+        Check(empty.PreviewImport(empty.Export()).Count == 0 && !Directory.Exists(emptyDirectory), "Exporting an empty library is side-effect free and produces a valid portable document");
+        byte[] sourceBytes = File.ReadAllBytes(FileName(sourceDirectory));
+        exported[0] = 0;
+        Check(sourceBytes.SequenceEqual(source.Export()), "Exported arrays cannot mutate source data or subsequent exports");
     }
     public static int Main(string[] args)
     {
         try
         {
-            string root = Path.GetFullPath(args.Length == 0 ? Path.Combine("artifacts", "local-skills-1.0.12") : args[0]);
+            string root = Path.GetFullPath(args.Length == 0 ? Path.Combine("artifacts", "skills-platform-1.0.13") : args[0]);
             root = Path.Combine(root, "fixtures-" + Guid.NewGuid().ToString("N"));
             Normal(Path.Combine(root, "normal")); Validation(Path.Combine(root, "validation")); Corrupt(Path.Combine(root, "corrupt"));
+            EditingAndLookup(Path.Combine(root, "editing")); Transfer(Path.Combine(root, "transfer"));
             Console.WriteLine("PASS " + checks + " local skill checks; isolated fixture directory: " + root); return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

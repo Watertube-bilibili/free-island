@@ -134,11 +134,11 @@ internal static class ConversationUiTests
                     double physicalHeight = material.PointToScreen(new Point(0, material.ActualHeight)).Y - material.PointToScreen(new Point()).Y;
                     Check(material.HighDetailRefraction && image.PixelHeight >= Math.Min(1024, physicalHeight) - 1 && image.PixelHeight <= 1024 && image.PixelWidth <= 1024, "Interactive Water retains bounded physical detail instead of stretching a 180px capture");
                     var timer = (DispatcherTimer)typeof(LiquidGlassSurface).GetField("timer", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(material);
-                    Check(timer.Interval == TimeSpan.FromMilliseconds(50), "Visible resting Water uses the faster 50 ms sampling schedule");
+                    Check(timer.Interval.TotalMilliseconds > 0 && timer.Interval.TotalMilliseconds <= 30, "Visible Water schedules at least 30 Hz while accounting for render work");
                     material.Pressed = true; Pump();
-                    Check(timer.Interval == TimeSpan.FromMilliseconds(16), "Pressed Water uses the 16 ms interaction schedule");
+                    Check(timer.Interval.TotalMilliseconds > 0 && timer.Interval.TotalMilliseconds <= 16, "Pressed Water uses the faster interaction schedule");
                     material.Pressed = false; Pump();
-                    Check(timer.Interval == TimeSpan.FromMilliseconds(50), "Released Water restores the bounded 50 ms resting schedule");
+                    Check(timer.Interval.TotalMilliseconds > 0 && timer.Interval.TotalMilliseconds <= 30, "Released Water keeps the at least 30 Hz schedule");
                 }
             }
             var slider = Find<Slider>(view, "ConversationVolume"); slider.Value = 73; Pump();
@@ -194,6 +194,66 @@ internal static class ConversationUiTests
         Check(!pending.IsCompleted && !Find<Button>(view, "ConversationSkills").IsEnabled, "Pending model reply disables library navigation");
         responder.Pending.SetResult(new LocalAiReply { Text = "完成。", Actions = new List<LocalAiAction>() }); Await(pending);
         Check(Find<Button>(view, "ConversationSkills").IsEnabled && !engine.CountdownActive && !engine.ShutdownAt.HasValue && !assistant.Service.IsRunning, "Completed reply restores skill navigation while leaving real model and system actions idle");
+        view.CancelRequest(); island.Hide(); Pump();
+    }
+    private static void VerifySkillPlatform(CoreEngine engine, AssistantController assistant, IslandWindow island, string prefix)
+    {
+        Check(assistant.Skills.List().Count == 0, "Skill platform fixture starts with an empty isolated library");
+        var original = assistant.Skills.Save("课堂练习", new[] {
+            new LocalAiAction { Kind = "countdown", Title = "课堂练习", Seconds = 300 },
+            new LocalAiAction { Kind = "volume", Title = "音量" },
+            new LocalAiAction { Kind = "open_reminders", Title = "日程入口" }
+        });
+        var responder = new Responder(); var history = new List<LocalAiTurn>(); string navigation = null;
+        byte[] exported = null, importBytes = null; int exportCalls = 0, importCalls = 0;
+        var view = new AssistantChatView(assistant, engine, island, delegate(string page) { navigation = page; }, history, responder.Respond,
+            delegate { ++importCalls; return importBytes; }, delegate(byte[] bytes) { ++exportCalls; exported = (byte[])bytes.Clone(); });
+        island.ShowAssistant(view, 548, true); Pump(); Click(Find<Button>(view, "ConversationSkills"));
+        Click(All<Button>(view).Single(b => AutomationProperties.GetName(b) == "编辑技能：课堂练习"));
+        var name = Find<TextBox>(view, "ConversationEditSkillName"); var duration = Find<Slider>(view, "ConversationSkillDuration");
+        Check(name.MaxLength == 24 && name.MinHeight >= 44 && duration.MinHeight >= 44 && duration.Minimum == 60 && duration.Maximum == 14400, "Skill editor retains bounded names, safe countdown range and classroom touch targets");
+        name.Text = "课堂讨论"; Click(All<Button>(view).Single(b => (b.Content as string) == "10 分钟"));
+        Check(duration.Value == 600 && assistant.Skills.List()[0].Name == "课堂练习" && assistant.Skills.List()[0].Actions[0].Seconds == 300 && !engine.CountdownActive, "Touch duration preset edits only the draft until explicit save");
+        Pump();
+        var editorScroll = All<ScrollViewer>(view).Single(s => AutomationProperties.GetName(s) == "对话记录");
+        var updateButton = Find<Button>(view, "ConversationUpdateSkill");
+        Check(updateButton.TranslatePoint(new Point(0, updateButton.ActualHeight), editorScroll).Y <= editorScroll.ActualHeight + 1 && !Find<TextBox>(view, "ConversationInput").IsVisible, "Focused skill editor keeps Save visible without competing chat controls");
+        InWorkArea(island); Capture(island, prefix + "-conversation-skill-editor");
+        Click(Find<Button>(view, "ConversationUpdateSkill"));
+        Check(Find<TextBox>(view, "ConversationInput").IsVisible, "Returning from editor restores normal conversation input");
+        var edited = assistant.Skills.List().Single();
+        Check(edited.Id == original.Id && edited.Name == "课堂讨论" && edited.Actions[0].Seconds == 600 && !engine.CountdownActive && navigation == null, "Saving an edited skill preserves identity and changes parameters without executing tools");
+        Find<TextBox>(view, "ConversationInput").Text = "使用技能「课堂讨论」"; Await(view.SendAsync());
+        Check(responder.Calls == 0 && history.Count == 0 && Find<TextBox>(view, "ConversationInput").Text.Length == 0, "Explicit saved-skill command resolves locally without model calls or artificial chat history");
+        Check(All<Button>(view).Any(b => (b.Content as string) == "确认开始 0:10:00 倒计时") && Find<TextBlock>(view, "ConversationState").Text == "技能已展开 · 尚未执行" && !engine.CountdownActive && !engine.ShutdownAt.HasValue, "Saved-skill lookup previews the edited ten-minute tool while leaving all actions idle");
+        InWorkArea(island); Capture(island, prefix + "-conversation-skill-lookup");
+        Click(All<Button>(view).Single(b => (b.Content as string) == "确认开始 0:10:00 倒计时"));
+        Check(engine.CountdownActive && engine.CountdownRemaining.TotalMinutes > 9 && engine.CountdownRemaining.TotalMinutes <= 10, "Only the explicit confirmation starts the edited countdown in the safe engine"); engine.CancelCountdown();
+        var other = assistant.Skills.Save("课堂讨论进阶", new[] { new LocalAiAction { Kind = "open_timer", Title = "打开计时" } });
+        Find<TextBox>(view, "ConversationInput").Text = "打开技能讨论"; Await(view.SendAsync());
+        Check(responder.Calls == 0 && All<Button>(view).Count(b => AutomationProperties.GetName(b).StartsWith("展开技能：", StringComparison.Ordinal)) == 2 && !engine.CountdownActive, "Ambiguous local lookup lists both matching skills for user choice without inference or execution");
+        Click(All<Button>(view).Single(b => AutomationProperties.GetName(b) == "移除技能：课堂讨论进阶"));
+        Check(assistant.Skills.List().Count == 1 && assistant.Skills.List()[0].Id != other.Id, "Removing a lookup result leaves the other skill intact");
+        Click(Find<Button>(view, "ConversationExportSkills"));
+        Check(exportCalls == 1 && exported != null && assistant.Skills.PreviewImport(exported).Single().Name == "课堂讨论" && !engine.CountdownActive, "Export button supplies a valid portable skill document to the injected fixture destination without executing actions");
+        Click(All<Button>(view).Single(b => AutomationProperties.GetName(b) == "移除技能：课堂讨论"));
+        Check(assistant.Skills.List().Count == 0, "Library removal completes before importing the exported fixture");
+        importBytes = (byte[])exported.Clone(); Click(Find<Button>(view, "ConversationImportSkills"));
+        Check(importCalls == 1 && assistant.Skills.List().Count == 0 && All<Button>(view).Any(b => b.Name == "ConversationConfirmSkillImport") && !engine.CountdownActive, "File selection opens an import preview without adding skills or executing tools");
+        InWorkArea(island); Capture(island, prefix + "-conversation-skill-import-preview");
+        // The UI must commit its own validated copy, not a mutable file-selection buffer.
+        importBytes[0] = 0; Click(Find<Button>(view, "ConversationConfirmSkillImport"));
+        var imported = assistant.Skills.List().Single();
+        Check(imported.Id != original.Id && imported.Name == "课堂讨论" && imported.Actions[0].Seconds == 600 && imported.Actions.Count == 3, "Confirmed import uses a protected preview copy and restores the edited content under a fresh local identifier");
+        Check(!engine.CountdownActive && !engine.ShutdownAt.HasValue && navigation == null && responder.Calls == 0 && !assistant.Service.IsRunning, "Importing never starts timers, changes pages, invokes inference or starts a real model");
+        importBytes = (byte[])exported.Clone(); Click(Find<Button>(view, "ConversationImportSkills")); Click(Find<Button>(view, "ConversationConfirmSkillImport"));
+        Check(assistant.Skills.List().Count == 1 && assistant.Skills.List()[0].Id == imported.Id && Find<TextBlock>(view, "ConversationState").Text == "已导入 0 个技能", "Repeated UI import reports zero additions and preserves the existing skill identity");
+        Click(All<Button>(view).Single(b => AutomationProperties.GetName(b) == "移除技能：课堂讨论"));
+        importBytes = (byte[])exported.Clone(); Click(Find<Button>(view, "ConversationImportSkills"));
+        Click(All<Button>(view).Single(b => (b.Content as string) == "取消"));
+        Check(assistant.Skills.List().Count == 0 && !engine.CountdownActive && !engine.ShutdownAt.HasValue, "Canceling an import preview leaves the isolated library and engine unchanged");
+        Find<TextBox>(view, "ConversationInput").Text = "展开技能不存在"; Await(view.SendAsync());
+        Check(responder.Calls == 0 && All<TextBlock>(view).Any(t => t.Text.StartsWith("没有找到这个技能", StringComparison.Ordinal)), "Missing saved-skill names show local recovery instead of inventing or running a model-generated replacement");
         view.CancelRequest(); island.Hide(); Pump();
     }
     private static void Click(Button button) { Check(button != null && button.IsEnabled, "Clickable safe UI action"); button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(); }
@@ -326,13 +386,14 @@ internal static class ConversationUiTests
                 Check(!assistant.Service.IsRunning && !assistant.Service.IsBusy, "All UI checks leave real local model stopped");
                 VerifyConversationGlass(engine, assistant, island, prefix);
                 VerifyConversationSkills(engine, assistant, island, prefix);
+                VerifySkillPlatform(engine, assistant, island, prefix);
             }
             finally { view.CancelRequest(); island.Close(); panel.AllowClose = true; panel.Close(); }
         }
     }
     [STAThread] private static int Main(string[] args)
     {
-        output = Path.GetFullPath(args.Length > 0 ? args[0] : "artifacts/conversation-ui-1.0.12"); Directory.CreateDirectory(output);
+        output = Path.GetFullPath(args.Length > 0 ? args[0] : "artifacts/conversation-ui-1.0.13"); Directory.CreateDirectory(output);
         try
         {
             new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown }; SurfaceStyle.SnapshotMode = true; LiquidGlassSurface.PreviewBackdrop = SyntheticBackdrop;

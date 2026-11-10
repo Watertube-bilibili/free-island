@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization.Json;
 using FreeIsland;
@@ -123,21 +124,97 @@ internal static class AssistantStoragePreferencesTests
         }
     }
 
-    private static int Main()
+    private static void PreferenceWriteRecovery()
     {
-        root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "FreeIsland.StoragePreferences." + Guid.NewGuid().ToString("N")));
+        string data = Path.Combine(root, "preference-recovery");
+        using (var engine = new CoreEngine(data, true))
+        using (var controller = new AssistantController(data, true, engine, delegate { return false; }))
+        {
+            controller.Save();
+            string path = Path.Combine(data, "assistant-settings.json");
+            byte[] original = File.ReadAllBytes(path);
+            string originalModel = controller.Preferences.SelectedModelId;
+            var lastContext = typeof(AssistantController).GetProperty("LastContext").GetSetMethod(true);
+            lastContext.Invoke(controller, new object[] { AssistantContext.Create("chrome", "测试私人标题 - YouTube", false, true) });
+            using (var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                controller.Preferences.Enabled = true;
+                controller.Preferences.RuleShortcutsEnabled = true;
+                controller.Preferences.IncludeWindowTitle = true;
+                controller.Preferences.SelectedModelId = LocalAiCatalog.Models.First(m => m.Id != originalModel).Id;
+                Reject(controller.Save, "A locked settings target reports a failed preference transaction");
+            }
+            Check(!controller.Preferences.Enabled && !controller.Preferences.RuleShortcutsEnabled && !controller.Preferences.IncludeWindowTitle && controller.Preferences.SelectedModelId == originalModel, "Failed save restores all four committed assistant preferences");
+            Check(controller.LastContext.WindowTitle.Length == 0 && !controller.LastContext.ModelContext.Contains("测试私人标题"), "Rolled-back title permission also removes raw title from retained context");
+            Check(original.SequenceEqual(File.ReadAllBytes(path)), "A failed preference commit preserves the prior settings bytes");
+            controller.Preferences.IncludeWindowTitle = true;
+            controller.Save();
+            using (var restored = new AssistantController(data, true, engine, delegate { return false; }))
+                Check(restored.Preferences.IncludeWindowTitle, "An unlocked preference save can be retried and survives restart");
+            lastContext.Invoke(controller, new object[] { AssistantContext.Create("chrome", "已授权但随后清除的标题 - YouTube", false, true) });
+            using (var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                controller.Preferences.IncludeWindowTitle = false;
+                Reject(controller.Save, "A failed title-disable commit is reported");
+            }
+            Check(controller.Preferences.IncludeWindowTitle && controller.LastContext.WindowTitle.Length == 0 && !controller.LastContext.ModelContext.Contains("已授权但随后清除的标题"), "Rollback never resurrects title text already cleared during the request");
+            Check(!controller.Service.IsRunning && !controller.Service.IsBusy, "Preference recovery never starts a model");
+        }
+    }
+
+    private static void StopWhenSettingsAreLocked()
+    {
+        string data = Path.Combine(root, "stop-recovery");
+        using (var engine = new CoreEngine(data, true))
+        using (var controller = new AssistantController(data, true, engine, delegate { return false; }))
+        {
+            controller.Preferences.Enabled = true; controller.Save();
+            string path = Path.Combine(data, "assistant-settings.json");
+            byte[] original = File.ReadAllBytes(path);
+            // An owned fixture lease exercises StopRunner cleanup without a real process or model.
+            var lease = new FileStream(Path.Combine(data, "owned-lease.fixture"), FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+            typeof(LocalAiService).GetField("modelLease", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(controller.Service, lease);
+            try
+            {
+                string failure = null;
+                using (var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    try { controller.DisableModel(); } catch (InvalidOperationException ex) { failure = ex.Message; }
+                    Check(failure != null && failure.Contains("本次模型已关闭") && failure.Contains("关闭状态未保存") && failure.Contains("下次启动"), "Failed persistence explicitly distinguishes current shutdown from next-launch preference");
+                    Check(!controller.Preferences.Enabled && controller.Service.Status.Contains("已停止") && !controller.Service.IsRunning, "Disable stops the service even if its settings cannot be persisted");
+                    Check(!lease.CanRead && !lease.CanWrite, "Failed persistence cannot prevent release of the owned model lease");
+                    controller.Preferences.RuleShortcutsEnabled = true;
+                    Reject(controller.Save, "Another preference save remains independently fallible while locked");
+                    Check(!controller.Preferences.Enabled && !controller.Preferences.RuleShortcutsEnabled, "A later failed save cannot re-enable a model stopped for this session");
+                }
+                Check(original.SequenceEqual(File.ReadAllBytes(path)), "Failed disable persistence preserves the original on-disk configuration");
+                using (var restored = new AssistantController(data, true, engine, delegate { return false; }))
+                    Check(restored.Preferences.Enabled && !restored.Service.IsRunning, "Reported next-launch preference remains true on disk without starting a model in the fixture");
+                controller.DisableModel();
+                Check(!controller.Preferences.Enabled && controller.LastError == null, "Retrying disable after unlocking persists and clears the error");
+                using (var restored = new AssistantController(data, true, engine, delegate { return false; }))
+                    Check(!restored.Preferences.Enabled, "Successful retry keeps the model disabled after restart");
+                Check(!controller.Service.IsRunning && !controller.Service.IsBusy, "Stop recovery leaves no real runner or model work");
+            }
+            finally { lease.Dispose(); }
+        }
+    }
+
+    private static int Main(string[] args)
+    {
+        string fixtureParent = Path.GetFullPath(args.Length == 0 ? Path.GetTempPath() : args[0]).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        root = Path.GetFullPath(Path.Combine(fixtureParent, "FreeIsland.StoragePreferences." + Guid.NewGuid().ToString("N")));
         Directory.CreateDirectory(root);
         try
         {
-            Switching(); RejectionsAndRollback(); OldAndInvalidPreferences();
+            Switching(); RejectionsAndRollback(); OldAndInvalidPreferences(); PreferenceWriteRecovery(); StopWhenSettingsAreLocked();
             Console.WriteLine("PASS " + checks + " assistant storage preference checks. Safe mode only; no model download/start, registry, network or system actions.");
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
         finally
         {
-            string temporaryRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            if (root.StartsWith(temporaryRoot, StringComparison.OrdinalIgnoreCase) && Path.GetFileName(root).StartsWith("FreeIsland.StoragePreferences.", StringComparison.Ordinal) && Directory.Exists(root))
+            if (root.StartsWith(fixtureParent, StringComparison.OrdinalIgnoreCase) && Path.GetFileName(root).StartsWith("FreeIsland.StoragePreferences.", StringComparison.Ordinal) && Directory.Exists(root))
                 Directory.Delete(root, true);
         }
     }
